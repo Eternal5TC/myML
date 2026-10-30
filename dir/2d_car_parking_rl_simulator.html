@@ -1,0 +1,1475 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D Car Parking Reinforcement Learning Simulator</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        darkbg: '#0f172a',
+                        cardbg: '#1e293b',
+                        bordercolor: '#334155',
+                        accent: '#3b82f6',
+                        accenthover: '#2563eb',
+                        success: '#10b981',
+                        danger: '#ef4444',
+                        warning: '#f59e0b'
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- FontAwesome CDN -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            user-select: none;
+        }
+        /* Custom scrollbars */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+        canvas {
+            touch-action: none;
+        }
+    </style>
+</head>
+<body class="bg-darkbg text-slate-100 min-h-screen flex flex-col overflow-x-hidden">
+
+    <!-- Header Navigation -->
+    <header class="bg-cardbg border-b border-bordercolor px-6 py-3 flex items-center justify-between shrink-0">
+        <div class="flex items-center gap-3">
+            <div class="bg-accent/20 p-2 rounded-lg text-accent">
+                <i class="fa-solid fa-car-side text-2xl"></i>
+            </div>
+            <div>
+                <h1 class="font-bold text-lg leading-tight flex items-center gap-2">
+                    Autonomous Car Parking RL Simulator
+                    <span class="text-xs font-normal bg-accent/20 text-accent px-2 py-0.5 rounded-full border border-accent/30">Q-Learning</span>
+                </h1>
+                <p class="text-xs text-slate-400">Kinematic Bicycle Physics & Tabular Q-Learning Navigation</p>
+            </div>
+        </div>
+
+        <!-- Mode & Quick Controls Header -->
+        <div class="flex items-center gap-4">
+            <div class="flex bg-darkbg p-1 rounded-lg border border-bordercolor text-xs">
+                <button id="modeManualBtn" onclick="setMode('manual')" class="px-3 py-1.5 rounded-md font-medium transition-all duration-200 hover:text-white text-slate-400">
+                    <i class="fa-solid fa-gamepad mr-1.5"></i>Manual
+                </button>
+                <button id="modeTrainBtn" onclick="setMode('train')" class="px-3 py-1.5 rounded-md font-medium transition-all duration-200 bg-accent text-white shadow">
+                    <i class="fa-solid fa-brain mr-1.5"></i>RL Train
+                </button>
+                <button id="modeEvalBtn" onclick="setMode('eval')" class="px-3 py-1.5 rounded-md font-medium transition-all duration-200 hover:text-white text-slate-400">
+                    <i class="fa-solid fa-circle-play mr-1.5"></i>Evaluate
+                </button>
+            </div>
+
+            <div class="h-6 w-[1px] bg-bordercolor"></div>
+
+            <div class="flex items-center gap-2">
+                <button id="startPauseBtn" onclick="toggleSimulation()" class="bg-success hover:bg-emerald-600 text-white px-4 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition">
+                    <i class="fa-solid fa-play" id="startPauseIcon"></i> <span id="startPauseText">Start</span>
+                </button>
+                <button onclick="resetEpisode()" class="bg-slate-700 hover:bg-slate-600 text-slate-200 px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1 transition" title="Reset Current Car State">
+                    <i class="fa-solid fa-rotate-right"></i> Reset Episode
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Grid -->
+    <main class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 p-4 overflow-hidden max-w-[1920px] mx-auto w-full">
+
+        <!-- Left Column: Canvas Arena & Realtime HUD (7 cols) -->
+        <section class="lg:col-span-7 flex flex-col gap-3 h-full">
+            <!-- Canvas Container -->
+            <div class="relative bg-cardbg border border-bordercolor rounded-xl overflow-hidden shadow-xl flex-1 flex items-center justify-center min-h-[420px] lg:min-h-[520px]">
+                <canvas id="simCanvas" class="w-full h-full block bg-[#0b1120] cursor-crosshair"></canvas>
+
+                <!-- On-Canvas HUD Overlay -->
+                <div class="absolute top-3 left-3 bg-darkbg/85 backdrop-blur-md border border-bordercolor/80 rounded-lg p-3 text-xs space-y-1 font-mono pointer-events-none shadow-lg">
+                    <div class="flex items-center justify-between gap-4">
+                        <span class="text-slate-400">Position:</span>
+                        <span id="hudPos" class="text-accent font-semibold">X: 0, Y: 0</span>
+                    </div>
+                    <div class="flex items-center justify-between gap-4">
+                        <span class="text-slate-400">Speed:</span>
+                        <span id="hudSpeed" class="text-emerald-400 font-semibold">0.0 px/s</span>
+                    </div>
+                    <div class="flex items-center justify-between gap-4">
+                        <span class="text-slate-400">Heading (Yaw):</span>
+                        <span id="hudYaw" class="text-amber-400 font-semibold">0°</span>
+                    </div>
+                    <div class="flex items-center justify-between gap-4">
+                        <span class="text-slate-400">Steer Angle:</span>
+                        <span id="hudSteer" class="text-purple-400 font-semibold">0°</span>
+                    </div>
+                    <div class="border-t border-bordercolor/50 my-1"></div>
+                    <div class="flex items-center justify-between gap-4">
+                        <span class="text-slate-400">Current Step Reward:</span>
+                        <span id="hudReward" class="font-semibold text-white">0.00</span>
+                    </div>
+                </div>
+
+                <!-- Simulation Speed & View Tools Bar (Top Right Overlay) -->
+                <div class="absolute top-3 right-3 flex items-center gap-2 bg-darkbg/90 backdrop-blur-md p-1.5 rounded-lg border border-bordercolor text-xs">
+                    <span class="text-slate-400 pl-2 pr-1 font-medium"><i class="fa-solid fa-gauge-high mr-1"></i>Speed:</span>
+                    <button onclick="setSimSpeed(1)" class="speed-btn active-speed px-2 py-0.5 rounded bg-accent text-white font-bold" data-speed="1">1x</button>
+                    <button onclick="setSimSpeed(2)" class="speed-btn px-2 py-0.5 rounded text-slate-300 hover:bg-slate-800" data-speed="2">2x</button>
+                    <button onclick="setSimSpeed(5)" class="speed-btn px-2 py-0.5 rounded text-slate-300 hover:bg-slate-800" data-speed="5">5x</button>
+                    <button onclick="setSimSpeed(20)" class="speed-btn px-2 py-0.5 rounded text-slate-300 hover:bg-slate-800" data-speed="20">20x</button>
+                    <button onclick="toggleTurbo()" id="turboBtn" class="px-2 py-0.5 rounded text-amber-400 border border-amber-500/30 hover:bg-amber-500/10 font-medium">
+                        <i class="fa-solid fa-bolt mr-1"></i>Turbo
+                    </button>
+                </div>
+
+                <!-- Interactive Canvas Hints Bar (Bottom Overlay) -->
+                <div class="absolute bottom-3 left-3 right-3 flex items-center justify-between bg-darkbg/85 backdrop-blur-md border border-bordercolor/60 px-3 py-1.5 rounded-lg text-[11px] text-slate-400">
+                    <div class="flex items-center gap-3">
+                        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span> Target Spot</span>
+                        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block"></span> Agent Car</span>
+                        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span> Obstacles</span>
+                    </div>
+                    <div class="text-slate-400 hidden sm:block">
+                        <i class="fa-solid fa-hand-pointer mr-1"></i> Drag Goal or Car to reposition
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sensor Distance Ray Monitor -->
+            <div class="bg-cardbg border border-bordercolor rounded-xl p-3 flex flex-col gap-2">
+                <div class="flex justify-between items-center text-xs font-semibold text-slate-300">
+                    <span><i class="fa-solid fa-radar text-accent mr-1.5"></i>LIDAR Ray Sensors Distance (px)</span>
+                    <span id="rayCountText" class="text-slate-400 font-normal">8 Rays (360° coverage)</span>
+                </div>
+                <div id="sensorBarsContainer" class="grid grid-cols-8 gap-1.5 h-12 items-end bg-darkbg/60 p-2 rounded-lg border border-bordercolor/50">
+                    <!-- Dynamic Bars Generated by JS -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Right Column: Control Panels, Metrics & Docs (5 cols) -->
+        <section class="lg:col-span-5 flex flex-col gap-3 overflow-y-auto max-h-[calc(100vh-80px)] pr-1">
+
+            <!-- Navigation Tabs -->
+            <div class="flex bg-cardbg border border-bordercolor p-1 rounded-xl text-xs font-medium">
+                <button onclick="switchTab('dashboard')" id="tabBtnDashboard" class="flex-1 py-2 rounded-lg bg-accent text-white text-center font-semibold transition">
+                    <i class="fa-solid fa-chart-line mr-1.5"></i>Dashboard & Metrics
+                </button>
+                <button onclick="switchTab('settings')" id="tabBtnSettings" class="flex-1 py-2 rounded-lg text-slate-400 hover:text-white text-center transition">
+                    <i class="fa-solid fa-sliders mr-1.5"></i>Hyperparameters
+                </button>
+                <button onclick="switchTab('docs')" id="tabBtnDocs" class="flex-1 py-2 rounded-lg text-slate-400 hover:text-white text-center transition">
+                    <i class="fa-solid fa-book-open mr-1.5"></i>MDP Guide
+                </button>
+            </div>
+
+            <!-- TAB 1: DASHBOARD & METRICS -->
+            <div id="tabDashboard" class="space-y-3">
+
+                <!-- Stats Counters -->
+                <div class="grid grid-cols-3 gap-2">
+                    <div class="bg-cardbg border border-bordercolor p-3 rounded-xl flex flex-col">
+                        <span class="text-[11px] text-slate-400 uppercase font-semibold">Episodes</span>
+                        <span id="statEpisodes" class="text-xl font-bold text-white mt-1">0</span>
+                    </div>
+                    <div class="bg-cardbg border border-bordercolor p-3 rounded-xl flex flex-col">
+                        <span class="text-[11px] text-slate-400 uppercase font-semibold">Success Rate</span>
+                        <span id="statSuccessRate" class="text-xl font-bold text-emerald-400 mt-1">0.0%</span>
+                    </div>
+                    <div class="bg-cardbg border border-bordercolor p-3 rounded-xl flex flex-col">
+                        <span class="text-[11px] text-slate-400 uppercase font-semibold">Exploration (ε)</span>
+                        <span id="statEpsilon" class="text-xl font-bold text-amber-400 mt-1">1.000</span>
+                    </div>
+                </div>
+
+                <!-- Live Performance Chart -->
+                <div class="bg-cardbg border border-bordercolor rounded-xl p-3 flex flex-col gap-2">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                            <i class="fa-solid fa-chart-area text-accent"></i> Real-time Reward & Success Curve
+                        </h3>
+                        <button onclick="clearChartData()" class="text-[10px] text-slate-400 hover:text-slate-200 underline">
+                            Clear Chart
+                        </button>
+                    </div>
+                    <div class="h-44 w-full relative">
+                        <canvas id="metricsChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Scenario & Environment Config -->
+                <div class="bg-cardbg border border-bordercolor rounded-xl p-3 space-y-3">
+                    <h3 class="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                        <i class="fa-solid fa-parking text-emerald-400"></i> Parking Environment Preset
+                    </h3>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="block text-[11px] text-slate-400 mb-1">Scenario Layout</label>
+                            <select id="scenarioSelect" onchange="changeScenario(this.value)" class="w-full bg-darkbg border border-bordercolor rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-accent">
+                                <option value="parallel">Parallel Parking</option>
+                                <option value="perpendicular">Perpendicular Parking</option>
+                                <option value="tight">Tight Bay Challenge</option>
+                                <option value="open">Open Lot (Basic)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] text-slate-400 mb-1">Max Steps / Episode</label>
+                            <input type="number" id="maxStepsInput" value="300" min="50" max="1000" step="50" onchange="updateEnvSettings()" class="w-full bg-darkbg border border-bordercolor rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-accent">
+                        </div>
+                    </div>
+
+                    <!-- Environment Action Buttons -->
+                    <div class="flex items-center gap-2 pt-1">
+                        <button onclick="resetAgentQTable()" class="flex-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5">
+                            <i class="fa-solid fa-trash-can"></i> Reset Q-Table
+                        </button>
+                        <button onclick="randomizeCarPosition()" class="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-200 px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5">
+                            <i class="fa-solid fa-shuffle"></i> Randomize Spawn
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Manual Drive Keyboard Guide (Visible in Manual Mode) -->
+                <div id="manualControlsCard" class="bg-cardbg border border-bordercolor rounded-xl p-3 hidden space-y-2">
+                    <h3 class="text-xs font-semibold text-amber-400 flex items-center gap-1.5">
+                        <i class="fa-solid fa-keyboard"></i> Manual Driver Controls
+                    </h3>
+                    <div class="grid grid-cols-2 gap-2 text-[11px] text-slate-300">
+                        <div class="bg-darkbg p-2 rounded-lg border border-bordercolor/50">
+                            <span class="font-bold text-accent">W / Arrow Up:</span> Accelerate
+                        </div>
+                        <div class="bg-darkbg p-2 rounded-lg border border-bordercolor/50">
+                            <span class="font-bold text-accent">S / Arrow Down:</span> Reverse / Brake
+                        </div>
+                        <div class="bg-darkbg p-2 rounded-lg border border-bordercolor/50">
+                            <span class="font-bold text-accent">A / Arrow Left:</span> Steer Left
+                        </div>
+                        <div class="bg-darkbg p-2 rounded-lg border border-bordercolor/50">
+                            <span class="font-bold text-accent">D / Arrow Right:</span> Steer Right
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- TAB 2: HYPERPARAMETERS & REWARDS -->
+            <div id="tabSettings" class="space-y-3 hidden">
+                <div class="bg-cardbg border border-bordercolor rounded-xl p-4 space-y-4">
+                    <h3 class="text-xs font-semibold text-slate-200 border-b border-bordercolor pb-2 flex items-center justify-between">
+                        <span><i class="fa-solid fa-sliders text-accent mr-1.5"></i>Q-Learning Parameters</span>
+                        <span class="text-[10px] text-slate-400 font-mono">Q(s,a) ← (1-α)Q + α(r + γ max Q')</span>
+                    </h3>
+
+                    <!-- Learning Rate (Alpha) -->
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs">
+                            <label class="text-slate-300">Learning Rate (α):</label>
+                            <span id="alphaVal" class="font-mono text-accent font-semibold">0.10</span>
+                        </div>
+                        <input type="range" id="paramAlpha" min="0.01" max="0.5" step="0.01" value="0.10" oninput="updateHyperparams()" class="w-full accent-accent bg-darkbg h-1.5 rounded-lg">
+                        <p class="text-[10px] text-slate-400">Controls how much new step info overrides older Q-values.</p>
+                    </div>
+
+                    <!-- Discount Factor (Gamma) -->
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs">
+                            <label class="text-slate-300">Discount Factor (γ):</label>
+                            <span id="gammaVal" class="font-mono text-accent font-semibold">0.95</span>
+                        </div>
+                        <input type="range" id="paramGamma" min="0.5" max="0.99" step="0.01" value="0.95" oninput="updateHyperparams()" class="w-full accent-accent bg-darkbg h-1.5 rounded-lg">
+                        <p class="text-[10px] text-slate-400">Importance of future rewards vs immediate rewards.</p>
+                    </div>
+
+                    <!-- Epsilon Exploration -->
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs">
+                            <label class="text-slate-300">Initial Epsilon (ε):</label>
+                            <span id="epsilonVal" class="font-mono text-amber-400 font-semibold">1.00</span>
+                        </div>
+                        <input type="range" id="paramEpsilon" min="0.1" max="1.0" step="0.05" value="1.00" oninput="updateHyperparams()" class="w-full accent-amber-400 bg-darkbg h-1.5 rounded-lg">
+                        <p class="text-[10px] text-slate-400">Probability of selecting random exploratory action.</p>
+                    </div>
+
+                    <!-- Epsilon Decay -->
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs">
+                            <label class="text-slate-300">Epsilon Decay Rate:</label>
+                            <span id="decayVal" class="font-mono text-amber-400 font-semibold">0.995</span>
+                        </div>
+                        <input type="range" id="paramDecay" min="0.95" max="0.999" step="0.001" value="0.995" oninput="updateHyperparams()" class="w-full accent-amber-400 bg-darkbg h-1.5 rounded-lg">
+                        <p class="text-[10px] text-slate-400">Multiplier applied to Epsilon after each episode.</p>
+                    </div>
+                </div>
+
+                <!-- Reward Function Tuning Panel -->
+                <div class="bg-cardbg border border-bordercolor rounded-xl p-4 space-y-3">
+                    <h3 class="text-xs font-semibold text-slate-200 border-b border-bordercolor pb-2">
+                        <i class="fa-solid fa-award text-amber-400 mr-1.5"></i>Reward Mechanics
+                    </h3>
+
+                    <div class="space-y-2 text-xs">
+                        <div class="flex items-center justify-between">
+                            <span class="text-slate-300">Successful Park Reward:</span>
+                            <input type="number" id="rewSuccess" value="100" class="w-20 bg-darkbg border border-bordercolor rounded px-2 py-1 text-right text-emerald-400 font-mono">
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span class="text-slate-300">Collision Penalty:</span>
+                            <input type="number" id="rewCollision" value="-100" class="w-20 bg-darkbg border border-bordercolor rounded px-2 py-1 text-right text-rose-400 font-mono">
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span class="text-slate-300">Step Living Penalty:</span>
+                            <input type="number" id="rewStep" value="-0.1" step="0.05" class="w-20 bg-darkbg border border-bordercolor rounded px-2 py-1 text-right text-slate-300 font-mono">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 3: MDP & DOCUMENTATION -->
+            <div id="tabDocs" class="space-y-3 hidden">
+                <div class="bg-cardbg border border-bordercolor rounded-xl p-4 text-xs space-y-3 text-slate-300 leading-relaxed">
+                    <h3 class="text-sm font-bold text-white border-b border-bordercolor pb-2 flex items-center gap-2">
+                        <i class="fa-solid fa-graduation-cap text-accent"></i> Markov Decision Process (MDP) Model
+                    </h3>
+
+                    <div>
+                        <h4 class="font-semibold text-accent mb-1">1. State Space Representation S</h4>
+                        <p class="text-slate-400 text-[11px]">
+                            To allow fast tabular Q-learning in browser, the continuous state is discretized into buckets:
+                        </p>
+                        <ul class="list-disc list-inside mt-1 space-y-0.5 text-[11px] text-slate-300">
+                            <li><strong>Relative Position (dx, dy):</strong> Discretized distance vector to target slot center.</li>
+                            <li><strong>Heading Angle Error (dTheta):</strong> Difference between car orientation and target slot angle.</li>
+                            <li><strong>LIDAR Sector Clearances:</strong> Front, rear, and lateral ray readings binned into proximity zones (Near, Mid, Far).</li>
+                        </ul>
+                    </div>
+
+                    <div>
+                        <h4 class="font-semibold text-accent mb-1">2. Action Space A (Discrete)</h4>
+                        <p class="text-slate-400 text-[11px]">The agent commands 5 discrete actions:</p>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-1 mt-1 text-[11px] font-mono text-slate-200">
+                            <div class="bg-darkbg p-1.5 rounded border border-bordercolor/50">0: Drive Forward + Straight</div>
+                            <div class="bg-darkbg p-1.5 rounded border border-bordercolor/50">1: Drive Forward + Left</div>
+                            <div class="bg-darkbg p-1.5 rounded border border-bordercolor/50">2: Drive Forward + Right</div>
+                            <div class="bg-darkbg p-1.5 rounded border border-bordercolor/50">3: Reverse + Left</div>
+                            <div class="bg-darkbg p-1.5 rounded border border-bordercolor/50">4: Reverse + Right</div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h4 class="font-semibold text-accent mb-1">3. Kinematic Bicycle Physics</h4>
+                        <p class="text-slate-400 text-[11px]">
+                            Calculates realistic non-holonomic vehicle motion using wheelbase $L$:
+                        </p>
+                        <div class="bg-darkbg p-2 rounded text-[11px] font-mono text-emerald-400 my-1 space-y-0.5 border border-bordercolor/50">
+                            dx/dt = v · cos(θ)<br>
+                            dy/dt = v · sin(θ)<br>
+                            dθ/dt = (v / L) · tan(δ)
+                        </div>
+                    </div>
+
+                    <div>
+                        <h4 class="font-semibold text-accent mb-1">4. Reward Function Formulation</h4>
+                        <p class="text-slate-400 text-[11px]">
+                            Calculates continuous feedback at each step $t$:
+                        </p>
+                        <div class="bg-darkbg p-2 rounded text-[11px] font-mono text-amber-300 my-1 border border-bordercolor/50">
+                            R_t = R_progress + R_align + R_time + R_terminal
+                        </div>
+                        <ul class="list-disc list-inside space-y-0.5 text-[11px] text-slate-400">
+                            <li><strong>R_progress:</strong> Shaping reward proportional to distance reduction to slot.</li>
+                            <li><strong>R_align:</strong> Angular alignment bonus $\cos(\theta_{car} - \theta_{target})$.</li>
+                            <li><strong>R_terminal:</strong> +100 for successful parking, -100 for wall collision.</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+        </section>
+    </main>
+
+    <!-- Main Simulator Engine JavaScript -->
+    <script>
+        /* ==========================================================================
+           1. GLOBAL SIMULATION STATE & CONFIGURATION
+           ========================================================================== */
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // App Mode: 'manual', 'train', 'eval'
+        let currentMode = 'train';
+        let isRunning = false;
+        let simSpeed = 1;
+        let isTurbo = false;
+
+        // Kinematic Vehicle Model Parameters
+        const CAR_WIDTH = 26;
+        const CAR_LENGTH = 48;
+        const WHEELBASE = 36;
+        const MAX_STEER = Math.PI / 6; // 30 degrees
+        const ACCEL = 120.0;
+        const FRICTION = 0.92;
+        const MAX_SPEED = 90.0;
+
+        // Simulation Loop Timing
+        let lastTime = performance.now();
+        let episodeStepCount = 0;
+        let maxStepsPerEpisode = 300;
+
+        // Interactive Drag State
+        let isDraggingCar = false;
+        let isDraggingGoal = false;
+
+        // Metrics Tracking
+        let totalEpisodes = 0;
+        let successfulEpisodes = 0;
+        let episodeRewards = [];
+        let successHistory = [];
+        let recentSuccesses = [];
+
+        /* ==========================================================================
+           2. ENVIRONMENT & OBSTACLE SCENARIOS
+           ========================================================================== */
+        class Vehicle {
+            constructor(x, y, yaw) {
+                this.x = x;
+                this.y = y;
+                this.yaw = yaw; // Heading in radians
+                this.v = 0; // Speed (px/sec)
+                this.steer = 0; // Front wheel angle
+                this.width = CAR_WIDTH;
+                this.length = CAR_LENGTH;
+                this.trail = [];
+            }
+
+            reset(x, y, yaw) {
+                this.x = x;
+                this.y = y;
+                this.yaw = yaw;
+                this.v = 0;
+                this.steer = 0;
+                this.trail = [];
+            }
+
+            update(dt, steerCmd, throttleCmd) {
+                // Update Steering Angle smoothly
+                const targetSteer = steerCmd * MAX_STEER;
+                this.steer += (targetSteer - this.steer) * 0.2;
+
+                // Update Speed
+                if (throttleCmd !== 0) {
+                    this.v += throttleCmd * ACCEL * dt;
+                } else {
+                    this.v *= Math.pow(FRICTION, dt * 60);
+                }
+
+                // Clamp Speed
+                this.v = Math.max(-MAX_SPEED * 0.6, Math.min(MAX_SPEED, this.v));
+
+                // Kinematic Bicycle Physics
+                this.x += this.v * Math.cos(this.yaw) * dt;
+                this.y += this.v * Math.sin(this.yaw) * dt;
+                this.yaw += (this.v / WHEELBASE) * Math.tan(this.steer) * dt;
+
+                // Normalize Yaw to [-PI, PI]
+                this.yaw = Math.atan2(Math.sin(this.yaw), Math.cos(this.yaw));
+
+                // Record trail history
+                if (Math.abs(this.v) > 1.0) {
+                    this.trail.push({x: this.x, y: this.y});
+                    if (this.trail.length > 40) this.trail.shift();
+                }
+            }
+
+            getCorners() {
+                const cos = Math.cos(this.yaw);
+                const sin = Math.sin(this.yaw);
+                const halfL = this.length / 2;
+                const halfW = this.width / 2;
+
+                // 4 corners relative to center
+                const localCorners = [
+                    {x: halfL, y: halfW},
+                    {x: halfL, y: -halfW},
+                    {x: -halfL, y: -halfW},
+                    {x: -halfL, y: halfW}
+                ];
+
+                return localCorners.map(pt => ({
+                    x: this.x + (pt.x * cos - pt.y * sin),
+                    y: this.y + (pt.x * sin + pt.y * cos)
+                }));
+            }
+        }
+
+        class ParkingGoal {
+            constructor(x, y, yaw, width = 34, length = 56) {
+                this.x = x;
+                this.y = y;
+                this.yaw = yaw;
+                this.width = width;
+                this.length = length;
+            }
+
+            getCorners() {
+                const cos = Math.cos(this.yaw);
+                const sin = Math.sin(this.yaw);
+                const halfL = this.length / 2;
+                const halfW = this.width / 2;
+
+                const localCorners = [
+                    {x: halfL, y: halfW},
+                    {x: halfL, y: -halfW},
+                    {x: -halfL, y: -halfW},
+                    {x: -halfL, y: halfW}
+                ];
+
+                return localCorners.map(pt => ({
+                    x: this.x + (pt.x * cos - pt.y * sin),
+                    y: this.y + (pt.x * sin + pt.y * cos)
+                }));
+            }
+        }
+
+        class Obstacle {
+            constructor(x, y, width, length, yaw = 0, color = '#f87171') {
+                this.x = x;
+                this.y = y;
+                this.width = width;
+                this.length = length;
+                this.yaw = yaw;
+                this.color = color;
+            }
+
+            getCorners() {
+                const cos = Math.cos(this.yaw);
+                const sin = Math.sin(this.yaw);
+                const halfL = this.length / 2;
+                const halfW = this.width / 2;
+
+                const localCorners = [
+                    {x: halfL, y: halfW},
+                    {x: halfL, y: -halfW},
+                    {x: -halfL, y: -halfW},
+                    {x: -halfL, y: halfW}
+                ];
+
+                return localCorners.map(pt => ({
+                    x: this.x + (pt.x * cos - pt.y * sin),
+                    y: this.y + (pt.x * sin + pt.y * cos)
+                }));
+            }
+        }
+
+        // Global Objects
+        let agentCar = new Vehicle(120, 200, 0);
+        let parkingGoal = new ParkingGoal(400, 200, 0);
+        let obstacles = [];
+        let rayDistances = new Array(8).fill(100);
+
+        /* Scenario Presets Setup */
+        function loadScenario(preset) {
+            obstacles = [];
+            const cw = canvas.width || 700;
+            const ch = canvas.height || 500;
+
+            if (preset === 'parallel') {
+                // Goal parallel between two parked cars along top road
+                const spotY = 150;
+                parkingGoal = new ParkingGoal(360, spotY, 0);
+                agentCar.reset(120, spotY + 90, 0);
+
+                // Parked car front and back
+                obstacles.push(new Obstacle(240, spotY, CAR_WIDTH, CAR_LENGTH, 0, '#ef4444'));
+                obstacles.push(new Obstacle(480, spotY, CAR_WIDTH, CAR_LENGTH, 0, '#ef4444'));
+
+                // Curb boundary wall
+                obstacles.push(new Obstacle(360, spotY - 35, 400, 10, 0, '#64748b'));
+            } 
+            else if (preset === 'perpendicular') {
+                // Goal perpendicular bay
+                parkingGoal = new ParkingGoal(420, 120, Math.PI / 2);
+                agentCar.reset(160, 320, 0);
+
+                // Adjacent cars
+                obstacles.push(new Obstacle(350, 120, CAR_WIDTH, CAR_LENGTH, Math.PI / 2, '#ef4444'));
+                obstacles.push(new Obstacle(490, 120, CAR_WIDTH, CAR_LENGTH, Math.PI / 2, '#ef4444'));
+
+                // Back wall
+                obstacles.push(new Obstacle(420, 50, 220, 10, 0, '#64748b'));
+            }
+            else if (preset === 'tight') {
+                // Narrow tight bay
+                parkingGoal = new ParkingGoal(380, 260, -Math.PI / 2);
+                agentCar.reset(100, 120, 0.2);
+
+                obstacles.push(new Obstacle(315, 260, CAR_WIDTH, CAR_LENGTH, -Math.PI / 2, '#ef4444'));
+                obstacles.push(new Obstacle(445, 260, CAR_WIDTH, CAR_LENGTH, -Math.PI / 2, '#ef4444'));
+                obstacles.push(new Obstacle(380, 330, 200, 12, 0, '#64748b'));
+            }
+            else {
+                // Open lot
+                parkingGoal = new ParkingGoal(cw - 150, ch / 2, 0);
+                agentCar.reset(120, ch / 2, 0);
+            }
+
+            // Boundary Walls
+            obstacles.push(new Obstacle(cw / 2, 10, cw, 20, 0, '#475569')); // Top
+            obstacles.push(new Obstacle(cw / 2, ch - 10, cw, 20, 0, '#475569')); // Bottom
+            obstacles.push(new Obstacle(10, ch / 2, 20, ch, 0, '#475569')); // Left
+            obstacles.push(new Obstacle(cw - 10, ch / 2, 20, ch, 0, '#475569')); // Right
+        }
+
+        /* ==========================================================================
+           3. RAY-CASTING LIDAR SENSORS & COLLISION ENGINE
+           ========================================================================== */
+        const RAY_ANGLES = [
+            0,                     // Front
+            Math.PI / 4,           // Front-Right
+            Math.PI / 2,           // Right
+            (3 * Math.PI) / 4,     // Rear-Right
+            Math.PI,               // Rear
+            -(3 * Math.PI) / 4,    // Rear-Left
+            -Math.PI / 2,          // Left
+            -Math.PI / 4           // Front-Left
+        ];
+        const MAX_RAY_DIST = 180;
+
+        function updateLidarRays() {
+            rayDistances = [];
+
+            for (let i = 0; i < RAY_ANGLES.length; i++) {
+                const angle = agentCar.yaw + RAY_ANGLES[i];
+                const rayDir = {x: Math.cos(angle), y: Math.sin(angle)};
+                
+                let minDistance = MAX_RAY_DIST;
+
+                // Test intersection with all obstacle edges
+                for (const obs of obstacles) {
+                    const corners = obs.getCorners();
+                    for (let j = 0; j < corners.length; j++) {
+                        const p1 = corners[j];
+                        const p2 = corners[(j + 1) % corners.length];
+
+                        const hitDist = raySegmentIntersection(
+                            agentCar.x, agentCar.y,
+                            agentCar.x + rayDir.x * MAX_RAY_DIST,
+                            agentCar.y + rayDir.y * MAX_RAY_DIST,
+                            p1.x, p1.y, p2.x, p2.y
+                        );
+
+                        if (hitDist !== null && hitDist < minDistance) {
+                            minDistance = hitDist;
+                        }
+                    }
+                }
+                rayDistances.push(minDistance);
+            }
+            updateSensorUIBars();
+        }
+
+        // Ray-Segment intersection math
+        function raySegmentIntersection(x1, y1, x2, y2, x3, y3, x4, y4) {
+            const denom = (y4 - y3) * (x2 - x1) - (x4 - x3) * (y2 - y1);
+            if (denom === 0) return null;
+
+            const ua = ((x4 - x3) * (y1 - y3) - (y4 - y3) * (x1 - x3)) / denom;
+            const ub = ((x2 - x1) * (y1 - y3) - (y2 - y1) * (x1 - x3)) / denom;
+
+            if (ua >= 0 && ua <= 1 && ub >= 0 && ub <= 1) {
+                const hitX = x1 + ua * (x2 - x1);
+                const hitY = y1 + ua * (y2 - y1);
+                return Math.hypot(hitX - x1, hitY - y1);
+            }
+            return null;
+        }
+
+        // Polygon Collision Detection (Separating Axis Theorem)
+        function checkCollision(car, obs) {
+            const polyA = car.getCorners();
+            const polyB = obs.getCorners();
+
+            const polygons = [polyA, polyB];
+            for (let i = 0; i < polygons.length; i++) {
+                const polygon = polygons[i];
+                for (let i1 = 0; i1 < polygon.length; i1++) {
+                    const i2 = (i1 + 1) % polygon.length;
+                    const p1 = polygon[i1];
+                    const p2 = polygon[i2];
+
+                    const normal = {x: p2.y - p1.y, y: p1.x - p2.x};
+
+                    let minA = null, maxA = null;
+                    for (const p of polyA) {
+                        const projected = normal.x * p.x + normal.y * p.y;
+                        if (minA === null || projected < minA) minA = projected;
+                        if (maxA === null || projected > maxA) maxA = projected;
+                    }
+
+                    let minB = null, maxB = null;
+                    for (const p of polyB) {
+                        const projected = normal.x * p.x + normal.y * p.y;
+                        if (minB === null || projected < minB) minB = projected;
+                        if (maxB === null || projected > maxB) maxB = projected;
+                    }
+
+                    if (maxA < minB || maxB < minA) return false;
+                }
+            }
+            return true;
+        }
+
+        function isCarColliding() {
+            for (const obs of obstacles) {
+                if (checkCollision(agentCar, obs)) return true;
+            }
+            return false;
+        }
+
+        /* Check Parking Alignment Success */
+        function checkParkingSuccess() {
+            const dist = Math.hypot(agentCar.x - parkingGoal.x, agentCar.y - parkingGoal.y);
+            
+            // Angular difference between car yaw and goal yaw
+            let yawDiff = Math.abs(agentCar.yaw - parkingGoal.yaw);
+            yawDiff = Math.atan2(Math.sin(yawDiff), Math.cos(yawDiff)); // Wrap [-PI, PI]
+
+            const isPositionMatched = dist < 22;
+            const isAngleMatched = Math.abs(yawDiff) < (Math.PI / 12); // ~15 deg
+            const isStopped = Math.abs(agentCar.v) < 15.0;
+
+            return isPositionMatched && isAngleMatched && isStopped;
+        }
+
+        /* ==========================================================================
+           4. TABULAR Q-LEARNING REINFORCE ENGINE
+           ========================================================================== */
+        class QLearningAgent {
+            constructor() {
+                this.qTable = {}; // Key: stateHash, Value: Array(5) of Q-values
+                this.alpha = 0.10;   // Learning Rate
+                this.gamma = 0.95;   // Discount Factor
+                this.epsilon = 1.0;  // Exploration Rate
+                this.epsilonDecay = 0.995;
+                this.minEpsilon = 0.02;
+
+                // 5 Discrete Actions
+                // [steerCmd (-1 left, 0 straight, 1 right), throttleCmd (1 fwd, -1 rev)]
+                this.actions = [
+                    { steer: 0.0, throttle: 1.0 },  // 0: Forward Straight
+                    { steer: -0.8, throttle: 1.0 }, // 1: Forward Left
+                    { steer: 0.8, throttle: 1.0 },  // 2: Forward Right
+                    { steer: -0.8, throttle: -1.0 },// 3: Reverse Left
+                    { steer: 0.8, throttle: -1.0 }  // 4: Reverse Right
+                ];
+            }
+
+            // Discretize Continuous State Space
+            getStateHash() {
+                const dx = parkingGoal.x - agentCar.x;
+                const dy = parkingGoal.y - agentCar.y;
+                
+                // Discretize relative distance into grid buckets (e.g. 25px per cell)
+                const binX = Math.floor(dx / 30);
+                const binY = Math.floor(dy / 30);
+
+                // Discretize angle error (-PI to PI in 12 bins)
+                let angleErr = parkingGoal.yaw - agentCar.yaw;
+                angleErr = Math.atan2(Math.sin(angleErr), Math.cos(angleErr));
+                const binAngle = Math.floor((angleErr + Math.PI) / (Math.PI / 6));
+
+                // Discretize Min LIDAR Ray Clearances (Front, Sides, Rear)
+                const frontClearance = Math.min(rayDistances[0], rayDistances[1], rayDistances[7]) < 40 ? 1 : 0;
+                const rearClearance = Math.min(rayDistances[3], rayDistances[4], rayDistances[5]) < 40 ? 1 : 0;
+
+                return `${binX},${binY},${binAngle},${frontClearance},${rearClearance}`;
+            }
+
+            getQValues(state) {
+                if (!this.qTable[state]) {
+                    this.qTable[state] = new Array(this.actions.length).fill(0.0);
+                }
+                return this.qTable[state];
+            }
+
+            selectAction(state) {
+                // Epsilon-Greedy Exploration Strategy
+                if (currentMode === 'train' && Math.random() < this.epsilon) {
+                    return Math.floor(Math.random() * this.actions.length);
+                } else {
+                    const qValues = this.getQValues(state);
+                    let maxQ = -Infinity;
+                    let bestAction = 0;
+                    for (let a = 0; a < qValues.length; a++) {
+                        if (qValues[a] > maxQ) {
+                            maxQ = qValues[a];
+                            bestAction = a;
+                        }
+                    }
+                    return bestAction;
+                }
+            }
+
+            update(state, action, reward, nextState, isTerminal) {
+                const currentQ = this.getQValues(state)[action];
+                let maxNextQ = 0;
+
+                if (!isTerminal) {
+                    const nextQValues = this.getQValues(nextState);
+                    maxNextQ = Math.max(...nextQValues);
+                }
+
+                // Standard Q-Learning Update Equation
+                const newQ = currentQ + this.alpha * (reward + this.gamma * maxNextQ - currentQ);
+                this.qTable[state][action] = newQ;
+            }
+
+            decayEpsilon() {
+                if (this.epsilon > this.minEpsilon) {
+                    this.epsilon *= this.epsilonDecay;
+                }
+            }
+        }
+
+        const rlAgent = new QLearningAgent();
+
+        /* Calculate Reward Function */
+        let prevDistToGoal = 0;
+
+        function calculateReward(isCollision, isSuccess) {
+            const rSuccess = parseFloat(document.getElementById('rewSuccess').value) || 100;
+            const rCollision = parseFloat(document.getElementById('rewCollision').value) || -100;
+            const rStep = parseFloat(document.getElementById('rewStep').value) || -0.1;
+
+            if (isCollision) return rCollision;
+            if (isSuccess) return rSuccess;
+
+            // Distance Progress Reward (Shaping)
+            const currentDist = Math.hypot(parkingGoal.x - agentCar.x, parkingGoal.y - agentCar.y);
+            const progressReward = (prevDistToGoal - currentDist) * 0.8;
+            prevDistToGoal = currentDist;
+
+            // Heading Alignment Reward
+            let yawDiff = Math.abs(agentCar.yaw - parkingGoal.yaw);
+            yawDiff = Math.atan2(Math.sin(yawDiff), Math.cos(yawDiff));
+            const alignReward = Math.cos(yawDiff) * 0.1;
+
+            return rStep + progressReward + alignReward;
+        }
+
+        /* ==========================================================================
+           5. MANUAL INPUT & USER INTERACTION
+           ========================================================================== */
+        const keys = {};
+        window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+        window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+        function getManualCommands() {
+            let steer = 0;
+            let throttle = 0;
+
+            if (keys['w'] || keys['arrowup']) throttle += 1;
+            if (keys['s'] || keys['arrowdown']) throttle -= 1;
+            if (keys['a'] || keys['arrowleft']) steer -= 1;
+            if (keys['d'] || keys['arrowright']) steer += 1;
+
+            return { steer, throttle };
+        }
+
+        // Canvas Mouse Dragging Handlers
+        let dragTarget = null;
+
+        canvas.addEventListener('mousedown', e => {
+            const rect = canvas.getBoundingClientRect();
+            const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+            const my = (e.clientY - rect.top) * (canvas.height / rect.height);
+
+            // Check if car clicked
+            if (Math.hypot(mx - agentCar.x, my - agentCar.y) < 25) {
+                dragTarget = 'car';
+            } else if (Math.hypot(mx - parkingGoal.x, my - parkingGoal.y) < 25) {
+                dragTarget = 'goal';
+            }
+        });
+
+        canvas.addEventListener('mousemove', e => {
+            if (!dragTarget) return;
+            const rect = canvas.getBoundingClientRect();
+            const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+            const my = (e.clientY - rect.top) * (canvas.height / rect.height);
+
+            if (dragTarget === 'car') {
+                agentCar.x = mx;
+                agentCar.y = my;
+                agentCar.v = 0;
+            } else if (dragTarget === 'goal') {
+                parkingGoal.x = mx;
+                parkingGoal.y = my;
+            }
+        });
+
+        window.addEventListener('mouseup', () => dragTarget = null);
+
+        /* ==========================================================================
+           6. MAIN SIMULATION & RL TRAIN LOOP
+           ========================================================================== */
+        let currentStepReward = 0;
+        let episodeAccumulatedReward = 0;
+
+        function simulationStep(dt) {
+            updateLidarRays();
+
+            let steerCmd = 0;
+            let throttleCmd = 0;
+
+            let currentStateHash = '';
+            let selectedActionIdx = 0;
+
+            if (currentMode === 'manual') {
+                const cmds = getManualCommands();
+                steerCmd = cmds.steer;
+                throttleCmd = cmds.throttle;
+            } else {
+                // RL Agent Decision (Train or Eval)
+                currentStateHash = rlAgent.getStateHash();
+                selectedActionIdx = rlAgent.selectAction(currentStateHash);
+                const action = rlAgent.actions[selectedActionIdx];
+
+                steerCmd = action.steer;
+                throttleCmd = action.throttle;
+            }
+
+            // Physics Update
+            agentCar.update(dt, steerCmd, throttleCmd);
+
+            // Collision & Goal Check
+            const isCollision = isCarColliding();
+            const isSuccess = checkParkingSuccess();
+            episodeStepCount++;
+
+            // Calculate Reward
+            currentStepReward = calculateReward(isCollision, isSuccess);
+            episodeAccumulatedReward += currentStepReward;
+
+            const isTimeout = episodeStepCount >= maxStepsPerEpisode;
+            const isTerminal = isCollision || isSuccess || isTimeout;
+
+            // RL Q-Table Update
+            if (currentMode === 'train') {
+                const nextStateHash = rlAgent.getStateHash();
+                rlAgent.update(currentStateHash, selectedActionIdx, currentStepReward, nextStateHash, isTerminal);
+            }
+
+            // Handle Terminal Episode Reset
+            if (isTerminal) {
+                finishEpisode(isSuccess, isCollision);
+            }
+        }
+
+        function finishEpisode(isSuccess, isCollision) {
+            totalEpisodes++;
+            if (isSuccess) successfulEpisodes++;
+
+            recentSuccesses.push(isSuccess ? 1 : 0);
+            if (recentSuccesses.length > 50) recentSuccesses.shift();
+
+            const successRate = (recentSuccesses.reduce((a, b) => a + b, 0) / recentSuccesses.length) * 100;
+
+            // Update Metrics
+            episodeRewards.push(episodeAccumulatedReward);
+            successHistory.push(successRate);
+
+            if (currentMode === 'train') {
+                rlAgent.decayEpsilon();
+            }
+
+            updateDashboardMetrics(successRate);
+            addChartDataPoint(totalEpisodes, episodeAccumulatedReward, successRate);
+
+            // Reset Episode Environment
+            resetEpisode();
+        }
+
+        function resetEpisode() {
+            episodeStepCount = 0;
+            episodeAccumulatedReward = 0;
+
+            // Respawn Car with small noise
+            const scenario = document.getElementById('scenarioSelect').value;
+            if (scenario === 'parallel') {
+                agentCar.reset(120 + (Math.random() * 20 - 10), 240 + (Math.random() * 20 - 10), (Math.random() * 0.2 - 0.1));
+            } else if (scenario === 'perpendicular') {
+                agentCar.reset(160 + (Math.random() * 20 - 10), 320 + (Math.random() * 20 - 10), (Math.random() * 0.2 - 0.1));
+            } else {
+                agentCar.reset(120 + (Math.random() * 20 - 10), canvas.height / 2 + (Math.random() * 20 - 10), 0);
+            }
+
+            prevDistToGoal = Math.hypot(parkingGoal.x - agentCar.x, parkingGoal.y - agentCar.y);
+        }
+
+        /* ==========================================================================
+           7. CANVAS RENDERING ENGINE
+           ========================================================================== */
+        function render() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw Parking Grid Pattern
+            drawGrid();
+
+            // Draw Parking Target Goal Slot
+            drawParkingGoal();
+
+            // Draw Trajectory Trail
+            drawTrail();
+
+            // Draw Obstacles & Walls
+            drawObstacles();
+
+            // Draw LIDAR Rays
+            drawLidarRays();
+
+            // Draw Car Agent
+            drawCar();
+
+            // Update On-Canvas HUD Overlay
+            document.getElementById('hudPos').innerText = `X: ${Math.round(agentCar.x)}, Y: ${Math.round(agentCar.y)}`;
+            document.getElementById('hudSpeed').innerText = `${agentCar.v.toFixed(1)} px/s`;
+            document.getElementById('hudYaw').innerText = `${Math.round(agentCar.yaw * (180 / Math.PI))}°`;
+            document.getElementById('hudSteer').innerText = `${Math.round(agentCar.steer * (180 / Math.PI))}°`;
+            document.getElementById('hudReward').innerText = currentStepReward.toFixed(2);
+            document.getElementById('statEpsilon').innerText = rlAgent.epsilon.toFixed(3);
+        }
+
+        function drawGrid() {
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 1;
+            const gridSize = 30;
+            for (let x = 0; x < canvas.width; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+            }
+            for (let y = 0; y < canvas.height; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.stroke();
+            }
+        }
+
+        function drawParkingGoal() {
+            ctx.save();
+            ctx.translate(parkingGoal.x, parkingGoal.y);
+            ctx.rotate(parkingGoal.yaw);
+
+            // Zone Fill
+            ctx.fillStyle = 'rgba(16, 185, 129, 0.15)';
+            ctx.fillRect(-parkingGoal.length / 2, -parkingGoal.width / 2, parkingGoal.length, parkingGoal.width);
+
+            // Target Parking Lines
+            ctx.strokeStyle = '#10b981';
+            ctx.lineWidth = 2.5;
+            ctx.setLineDash([6, 4]);
+            ctx.strokeRect(-parkingGoal.length / 2, -parkingGoal.width / 2, parkingGoal.length, parkingGoal.width);
+
+            // Orientation Arrow
+            ctx.setLineDash([]);
+            ctx.strokeStyle = '#34d399';
+            ctx.fillStyle = '#34d399';
+            ctx.beginPath();
+            ctx.moveTo(-10, 0);
+            ctx.lineTo(12, 0);
+            ctx.lineTo(6, -5);
+            ctx.moveTo(12, 0);
+            ctx.lineTo(6, 5);
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
+        function drawTrail() {
+            if (agentCar.trail.length < 2) return;
+            ctx.strokeStyle = 'rgba(59, 130, 246, 0.35)';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(agentCar.trail[0].x, agentCar.trail[0].y);
+            for (let i = 1; i < agentCar.trail.length; i++) {
+                ctx.lineTo(agentCar.trail[i].x, agentCar.trail[i].y);
+            }
+            ctx.stroke();
+        }
+
+        function drawObstacles() {
+            for (const obs of obstacles) {
+                ctx.save();
+                ctx.translate(obs.x, obs.y);
+                ctx.rotate(obs.yaw);
+
+                ctx.fillStyle = obs.color;
+                ctx.shadowColor = 'rgba(0,0,0,0.4)';
+                ctx.shadowBlur = 8;
+
+                ctx.beginPath();
+                ctx.roundRect(-obs.length / 2, -obs.width / 2, obs.length, obs.width, 4);
+                ctx.fill();
+
+                ctx.strokeStyle = '#1e293b';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+
+                ctx.restore();
+            }
+        }
+
+        function drawLidarRays() {
+            for (let i = 0; i < RAY_ANGLES.length; i++) {
+                const angle = agentCar.yaw + RAY_ANGLES[i];
+                const dist = rayDistances[i];
+
+                const endX = agentCar.x + Math.cos(angle) * dist;
+                const endY = agentCar.y + Math.sin(angle) * dist;
+
+                ctx.strokeStyle = dist < 35 ? 'rgba(239, 68, 68, 0.8)' : 'rgba(59, 130, 246, 0.4)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(agentCar.x, agentCar.y);
+                ctx.lineTo(endX, endY);
+                ctx.stroke();
+
+                // Hit Endpoint Dot
+                ctx.fillStyle = dist < 35 ? '#ef4444' : '#60a5fa';
+                ctx.beginPath();
+                ctx.arc(endX, endY, 2.5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        function drawCar() {
+            ctx.save();
+            ctx.translate(agentCar.x, agentCar.y);
+            ctx.rotate(agentCar.yaw);
+
+            // Car Body Shadow & Base
+            ctx.shadowColor = 'rgba(0,0,0,0.5)';
+            ctx.shadowBlur = 10;
+            ctx.fillStyle = '#3b82f6';
+            ctx.beginPath();
+            ctx.roundRect(-agentCar.length / 2, -agentCar.width / 2, agentCar.length, agentCar.width, 6);
+            ctx.fill();
+
+            // Windshield / Cabin
+            ctx.fillStyle = '#1e293b';
+            ctx.fillRect(-6, -agentCar.width / 2 + 3, 16, agentCar.width - 6);
+
+            // Headlights
+            ctx.fillStyle = '#fef08a';
+            ctx.fillRect(agentCar.length / 2 - 3, -agentCar.width / 2 + 3, 3, 5);
+            ctx.fillRect(agentCar.length / 2 - 3, agentCar.width / 2 - 8, 3, 5);
+
+            // Front Steering Wheels Visualization
+            ctx.fillStyle = '#0f172a';
+            ctx.save();
+            ctx.translate(WHEELBASE / 2, -agentCar.width / 2);
+            ctx.rotate(agentCar.steer);
+            ctx.fillRect(-5, -2, 10, 4);
+            ctx.restore();
+
+            ctx.save();
+            ctx.translate(WHEELBASE / 2, agentCar.width / 2);
+            ctx.rotate(agentCar.steer);
+            ctx.fillRect(-5, -2, 10, 4);
+            ctx.restore();
+
+            ctx.restore();
+        }
+
+        /* Sensor Bar Chart UI Renderer */
+        function updateSensorUIBars() {
+            const container = document.getElementById('sensorBarsContainer');
+            if (container.children.length === 0) {
+                // Initialize 8 Bar HTML elements
+                for (let i = 0; i < 8; i++) {
+                    const barWrap = document.createElement('div');
+                    barWrap.className = 'flex flex-col items-center h-full justify-end group relative';
+                    barWrap.innerHTML = `
+                        <div class="w-full bg-slate-700 rounded-t overflow-hidden flex flex-col justify-end h-8">
+                            <div id="sensorBar${i}" class="bg-accent w-full transition-all duration-75" style="height: 50%;"></div>
+                        </div>
+                        <span class="text-[9px] text-slate-400 mt-1 font-mono">${['F','FR','R','RR','B','RL','L','FL'][i]}</span>
+                    `;
+                    container.appendChild(barWrap);
+                }
+            }
+
+            // Update Heights
+            for (let i = 0; i < 8; i++) {
+                const bar = document.getElementById(`sensorBar${i}`);
+                if (bar) {
+                    const pct = Math.min(100, (rayDistances[i] / MAX_RAY_DIST) * 100);
+                    bar.style.height = `${pct}%`;
+                    bar.style.backgroundColor = rayDistances[i] < 35 ? '#ef4444' : '#3b82f6';
+                }
+            }
+        }
+
+        /* ==========================================================================
+           8. CHART.JS REALTIME METRICS
+           ========================================================================== */
+        let metricsChart;
+
+        function initChart() {
+            const ctxChart = document.getElementById('metricsChart').getContext('2d');
+            metricsChart = new Chart(ctxChart, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'Episode Reward',
+                            data: [],
+                            borderColor: '#3b82f6',
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            borderWidth: 1.5,
+                            fill: true,
+                            yAxisID: 'yReward',
+                            tension: 0.2,
+                            pointRadius: 0
+                        },
+                        {
+                            label: 'Success Rate (%)',
+                            data: [],
+                            borderColor: '#10b981',
+                            borderWidth: 2,
+                            yAxisID: 'ySuccess',
+                            tension: 0.1,
+                            pointRadius: 0
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    scales: {
+                        x: {
+                            display: true,
+                            grid: { color: '#334155' },
+                            ticks: { color: '#94a3b8', font: { size: 10 } }
+                        },
+                        yReward: {
+                            type: 'linear',
+                            position: 'left',
+                            grid: { color: '#334155' },
+                            ticks: { color: '#94a3b8', font: { size: 10 } }
+                        },
+                        ySuccess: {
+                            type: 'linear',
+                            position: 'right',
+                            min: 0,
+                            max: 100,
+                            grid: { drawOnChartArea: false },
+                            ticks: { color: '#10b981', font: { size: 10 } }
+                        }
+                    },
+                    plugins: {
+                        legend: { labels: { color: '#cbd5e1', font: { size: 10 } } }
+                    }
+                }
+            });
+        }
+
+        function addChartDataPoint(ep, reward, successRate) {
+            if (!metricsChart) return;
+            metricsChart.data.labels.push(ep);
+            metricsChart.data.datasets[0].data.push(reward);
+            metricsChart.data.datasets[1].data.push(successRate);
+
+            if (metricsChart.data.labels.length > 80) {
+                metricsChart.data.labels.shift();
+                metricsChart.data.datasets[0].data.shift();
+                metricsChart.data.datasets[1].data.shift();
+            }
+            metricsChart.update('none');
+        }
+
+        function clearChartData() {
+            if (!metricsChart) return;
+            metricsChart.data.labels = [];
+            metricsChart.data.datasets[0].data = [];
+            metricsChart.data.datasets[1].data = [];
+            metricsChart.update();
+        }
+
+        /* ==========================================================================
+           9. UI & SIMULATION CONTROLS ENGINE
+           ========================================================================== */
+        function mainLoop(now) {
+            const dt = Math.min((now - lastTime) / 1000, 0.1);
+            lastTime = now;
+
+            if (isRunning) {
+                // Execute Multiple Sub-steps for Fast Forward / Turbo Speed
+                const stepsToRun = isTurbo ? 15 : simSpeed;
+                for (let s = 0; s < stepsToRun; s++) {
+                    simulationStep(0.05);
+                }
+            }
+
+            render();
+            requestAnimationFrame(mainLoop);
+        }
+
+        function toggleSimulation() {
+            isRunning = !isRunning;
+            const btnText = document.getElementById('startPauseText');
+            const btnIcon = document.getElementById('startPauseIcon');
+
+            if (isRunning) {
+                btnText.innerText = 'Pause';
+                btnIcon.className = 'fa-solid fa-pause';
+            } else {
+                btnText.innerText = 'Start';
+                btnIcon.className = 'fa-solid fa-play';
+            }
+        }
+
+        function setMode(mode) {
+            currentMode = mode;
+            document.getElementById('modeManualBtn').className = mode === 'manual' ? 'px-3 py-1.5 rounded-md font-medium bg-accent text-white shadow' : 'px-3 py-1.5 rounded-md font-medium hover:text-white text-slate-400';
+            document.getElementById('modeTrainBtn').className = mode === 'train' ? 'px-3 py-1.5 rounded-md font-medium bg-accent text-white shadow' : 'px-3 py-1.5 rounded-md font-medium hover:text-white text-slate-400';
+            document.getElementById('modeEvalBtn').className = mode === 'eval' ? 'px-3 py-1.5 rounded-md font-medium bg-accent text-white shadow' : 'px-3 py-1.5 rounded-md font-medium hover:text-white text-slate-400';
+
+            const manualCard = document.getElementById('manualControlsCard');
+            if (mode === 'manual') {
+                manualCard.classList.remove('hidden');
+            } else {
+                manualCard.classList.add('hidden');
+            }
+        }
+
+        function setSimSpeed(speed) {
+            simSpeed = speed;
+            isTurbo = false;
+            document.querySelectorAll('.speed-btn').forEach(btn => {
+                btn.classList.remove('bg-accent', 'text-white');
+                btn.classList.add('text-slate-300');
+            });
+            event.target.classList.add('bg-accent', 'text-white');
+        }
+
+        function toggleTurbo() {
+            isTurbo = !isTurbo;
+            document.getElementById('turboBtn').classList.toggle('bg-amber-500/20');
+        }
+
+        function switchTab(tabName) {
+            document.getElementById('tabDashboard').classList.add('hidden');
+            document.getElementById('tabSettings').classList.add('hidden');
+            document.getElementById('tabDocs').classList.add('hidden');
+
+            document.getElementById('tabBtnDashboard').className = 'flex-1 py-2 rounded-lg text-slate-400 hover:text-white text-center transition';
+            document.getElementById('tabBtnSettings').className = 'flex-1 py-2 rounded-lg text-slate-400 hover:text-white text-center transition';
+            document.getElementById('tabBtnDocs').className = 'flex-1 py-2 rounded-lg text-slate-400 hover:text-white text-center transition';
+
+            if (tabName === 'dashboard') {
+                document.getElementById('tabDashboard').classList.remove('hidden');
+                document.getElementById('tabBtnDashboard').className = 'flex-1 py-2 rounded-lg bg-accent text-white text-center font-semibold transition';
+            } else if (tabName === 'settings') {
+                document.getElementById('tabSettings').classList.remove('hidden');
+                document.getElementById('tabBtnSettings').className = 'flex-1 py-2 rounded-lg bg-accent text-white text-center font-semibold transition';
+            } else if (tabName === 'docs') {
+                document.getElementById('tabDocs').classList.remove('hidden');
+                document.getElementById('tabBtnDocs').className = 'flex-1 py-2 rounded-lg bg-accent text-white text-center font-semibold transition';
+            }
+        }
+
+        function updateHyperparams() {
+            rlAgent.alpha = parseFloat(document.getElementById('paramAlpha').value);
+            rlAgent.gamma = parseFloat(document.getElementById('paramGamma').value);
+            rlAgent.epsilon = parseFloat(document.getElementById('paramEpsilon').value);
+            rlAgent.epsilonDecay = parseFloat(document.getElementById('paramDecay').value);
+
+            document.getElementById('alphaVal').innerText = rlAgent.alpha.toFixed(2);
+            document.getElementById('gammaVal').innerText = rlAgent.gamma.toFixed(2);
+            document.getElementById('epsilonVal').innerText = rlAgent.epsilon.toFixed(2);
+            document.getElementById('decayVal').innerText = rlAgent.epsilonDecay.toFixed(3);
+        }
+
+        function updateDashboardMetrics(successRate) {
+            document.getElementById('statEpisodes').innerText = totalEpisodes;
+            document.getElementById('statSuccessRate').innerText = `${successRate.toFixed(1)}%`;
+        }
+
+        function updateEnvSettings() {
+            maxStepsPerEpisode = parseInt(document.getElementById('maxStepsInput').value) || 300;
+        }
+
+        function changeScenario(preset) {
+            loadScenario(preset);
+            resetEpisode();
+        }
+
+        function resetAgentQTable() {
+            rlAgent.qTable = {};
+            rlAgent.epsilon = parseFloat(document.getElementById('paramEpsilon').value);
+            totalEpisodes = 0;
+            successfulEpisodes = 0;
+            recentSuccesses = [];
+            clearChartData();
+            updateDashboardMetrics(0);
+        }
+
+        function randomizeCarPosition() {
+            agentCar.x = 80 + Math.random() * (canvas.width - 200);
+            agentCar.y = 80 + Math.random() * (canvas.height - 160);
+            agentCar.yaw = Math.random() * Math.PI * 2 - Math.PI;
+            agentCar.v = 0;
+        }
+
+        // Resize Canvas dynamically to match parent container
+        function resizeCanvas() {
+            const container = canvas.parentElement;
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+            loadScenario(document.getElementById('scenarioSelect').value);
+        }
+
+        /* ==========================================================================
+           10. INITIALIZATION
+           ========================================================================== */
+        window.onload = function() {
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+
+            initChart();
+            loadScenario('parallel');
+            resetEpisode();
+
+            // Start Animation Loop
+            requestAnimationFrame(mainLoop);
+        };
+    </script>
+</body>
+</html>

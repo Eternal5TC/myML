@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RL Robotic Arm Reaching Task</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 { margin-bottom: 5px; font-size: 1.5rem; color: #38bdf8; }
+        p { color: #94a3b8; font-size: 0.9rem; margin-top: 0; }
+        .container {
+            display: flex;
+            gap: 20px;
+            background: #1e293b;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+            max-width: 700px;
+            width: 100%;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        canvas {
+            background: #0f172a;
+            border-radius: 8px;
+            border: 2px solid #334155;
+        }
+        .panel {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            min-width: 220px;
+        }
+        .stat-box {
+            background: #0f172a;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #334155;
+        }
+        .stat-title { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; }
+        .stat-value { font-size: 1.25rem; font-weight: bold; color: #f8fafc; }
+        button {
+            background: #38bdf8;
+            color: #0f172a;
+            border: none;
+            padding: 10px;
+            font-weight: bold;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover { background: #0ea5e9; }
+    </style>
+</head>
+<body>
+
+    <h1>🤖 Robotic Arm RL Reaching Demo</h1>
+    <p>A 2-joint robotic arm learning motor coordination via Q-learning.</p>
+
+    <div class="container">
+        <canvas id="simCanvas" width="350" height="350"></canvas>
+        
+        <div class="panel">
+            <div class="stat-box">
+                <div class="stat-title">Episode</div>
+                <div class="stat-value" id="epCount">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-title">Successful Reaches</div>
+                <div class="stat-value" id="successCount">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-title">Exploration Rate (ε)</div>
+                <div class="stat-value" id="epsValue">1.00</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-title">Current Reward</div>
+                <div class="stat-value" id="rewardValue">0</div>
+            </div>
+            <button id="toggleBtn" onclick="toggleTraining()">Pause Training</button>
+            <button onclick="resetQTable()" style="background:#ef4444; color:white;">Reset Agent Memory</button>
+        </div>
+    </div>
+
+<script>
+    const canvas = document.getElementById('simCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Robot Parameters
+    const base = { x: 175, y: 280 };
+    const L1 = 90; // Length of upper arm
+    const L2 = 70; // Length of forearm
+    let theta1 = Math.PI / 4; // Shoulder angle
+    let theta2 = Math.PI / 4; // Elbow angle
+
+    // Target position
+    let target = { x: 250, y: 120, radius: 12 };
+
+    // RL Parameters
+    let Q = {}; // Q-Table
+    let alpha = 0.2;  // Learning rate
+    let gamma = 0.95; // Discount factor
+    let epsilon = 1.0; // Exploration rate
+    let epsDecay = 0.995;
+
+    let episode = 0;
+    let successes = 0;
+    let stepCount = 0;
+    let currentReward = 0;
+    let isRunning = true;
+
+    // Discretize angles into bins to manage state space size
+    function getState(t1, t2) {
+        let b1 = Math.floor((t1 / (2 * Math.PI)) * 6);
+        let b2 = Math.floor((t2 / (2 * Math.PI)) * 6);
+        return `${b1},${b2}`;
+    }
+
+    function getQ(state, action) {
+        if (!Q[state]) Q[state] = [0, 0, 0, 0];
+        return Q[state][action];
+    }
+
+    function chooseAction(state) {
+        if (Math.random() < epsilon) {
+            return Math.floor(Math.random() * 4); // Explore
+        }
+        let qVals = Q[state] || [0, 0, 0, 0];
+        let maxQ = Math.max(...qVals);
+        let bestActions = [];
+        qVals.forEach((q, i) => { if (q === maxQ) bestActions.push(i); });
+        return bestActions[Math.floor(Math.random() * bestActions.length)];
+    }
+
+    function updateRobot(action) {
+        const delta = 0.1;
+        if (action === 0) theta1 += delta;
+        if (action === 1) theta1 -= delta;
+        if (action === 2) theta2 += delta;
+        if (action === 3) theta2 -= delta;
+
+        // Keep angles bounded
+        theta1 = Math.max(0, Math.min(Math.PI, theta1));
+        theta2 = Math.max(-Math.PI, Math.min(Math.PI, theta2));
+    }
+
+    function getEndEffector() {
+        let x1 = base.x + L1 * Math.cos(theta1);
+        let y1 = base.y - L1 * Math.sin(theta1);
+        let x2 = x1 + L2 * Math.cos(theta1 + theta2);
+        let y2 = y1 - L2 * Math.sin(theta1 + theta2);
+        return { x: x2, y: y2 };
+    }
+
+    function runStep() {
+        if (!isRunning) return;
+
+        let state = getState(theta1, theta2);
+        let action = chooseAction(state);
+        
+        let oldPos = getEndEffector();
+        let oldDist = Math.hypot(oldPos.x - target.x, oldPos.y - target.y);
+
+        updateRobot(action);
+
+        let newPos = getEndEffector();
+        let newDist = Math.hypot(newPos.x - target.x, newPos.y - target.y);
+
+        let reward = -1; // Time penalty
+        let done = false;
+
+        // Reward shaping: reward getting closer, penalize moving away
+        if (newDist < oldDist) reward += 2;
+        else reward -= 2;
+
+        if (newDist < target.radius + 5) {
+            reward += 100;
+            successes++;
+            done = true;
+        }
+
+        currentReward = reward;
+
+        // Q-Learning Update
+        let nextState = getState(theta1, theta2);
+        let maxNextQ = Math.max(...(Q[nextState] || [0, 0, 0, 0]));
+        if (!Q[state]) Q[state] = [0, 0, 0, 0];
+        Q[state][action] += alpha * (reward + gamma * maxNextQ - Q[state][action]);
+
+        stepCount++;
+        if (done || stepCount > 150) {
+            episode++;
+            stepCount = 0;
+            epsilon = Math.max(0.05, epsilon * epsDecay);
+            // Reset arm position
+            theta1 = Math.random() * Math.PI;
+            theta2 = Math.random() * Math.PI - Math.PI/2;
+        }
+
+        draw();
+        updateUI();
+        setTimeout(runStep, 15); // Simulation speed
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Draw Target
+        ctx.beginPath();
+        ctx.arc(target.x, target.y, target.radius, 0, 2 * Math.PI);
+        ctx.fillStyle = '#ef4444';
+        ctx.fill();
+        ctx.closePath();
+
+        // Calculate joints
+        let x1 = base.x + L1 * Math.cos(theta1);
+        let y1 = base.y - L1 * Math.sin(theta1);
+        let x2 = x1 + L2 * Math.cos(theta1 + theta2);
+        let y2 = y1 - L2 * Math.sin(theta1 + theta2);
+
+        // Draw Arm Links
+        ctx.beginPath();
+        ctx.moveTo(base.x, base.y);
+        ctx.lineTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 8;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+        ctx.closePath();
+
+        // Draw Joints
+        ctx.fillStyle = '#f8fafc';
+        ctx.beginPath();
+        ctx.arc(base.x, base.y, 6, 0, 2 * Math.PI);
+        ctx.arc(x1, y1, 5, 0, 2 * Math.PI);
+        ctx.arc(x2, y2, 6, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.closePath();
+    }
+
+    function updateUI() {
+        document.getElementById('epCount').innerText = episode;
+        document.getElementById('successCount').innerText = successes;
+        document.getElementById('epsValue').innerText = epsilon.toFixed(2);
+        document.getElementById('rewardValue').innerText = currentReward;
+    }
+
+    function toggleTraining() {
+        isRunning = !isRunning;
+        document.getElementById('toggleBtn').innerText = isRunning ? "Pause Training" : "Resume Training";
+        if (isRunning) runStep();
+    }
+
+    function resetQTable() {
+        Q = {};
+        episode = 0;
+        successes = 0;
+        epsilon = 1.0;
+    }
+
+    // Start simulation
+    runStep();
+</script>
+
+</body>
+</html>

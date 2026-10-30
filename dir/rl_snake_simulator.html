@@ -1,0 +1,1212 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reinforcement Learning Snake Visualizer</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- MathJax for rendering Bellman Equation -->
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        cyber: {
+                            bg: '#0B0F19',
+                            card: '#111827',
+                            border: '#1F2937',
+                            primary: '#10B981',
+                            accent: '#8B5CF6',
+                            danger: '#EF4444',
+                            warning: '#F59E0B',
+                            cyan: '#06B6D4'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #060913;
+            color: #E5E7EB;
+        }
+        
+        .code-font {
+            font-family: 'Fira Code', monospace;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0B0F19;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #1F2937;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #374151;
+        }
+
+        .glow-green {
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.3);
+        }
+        .glow-purple {
+            box-shadow: 0 0 15px rgba(139, 92, 246, 0.3);
+        }
+        .glow-cyan {
+            box-shadow: 0 0 15px rgba(6, 182, 212, 0.3);
+        }
+
+        /* Tab Transition */
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between text-slate-200 antialiased selection:bg-emerald-500 selection:text-black">
+
+    <!-- Header Navigation -->
+    <header class="border-b border-gray-800 bg-gray-900/80 backdrop-blur sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap items-center justify-between gap-4">
+            <div class="flex items-center space-x-3">
+                <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+                    <i class="fa-solid fa-brain text-gray-950 font-black text-lg"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold bg-gradient-to-r from-emerald-400 via-cyan-400 to-purple-400 bg-clip-text text-transparent">
+                        RL Snake Lab
+                    </h1>
+                    <p class="text-xs text-gray-400">Q-Learning Interactive Agent Simulator</p>
+                </div>
+            </div>
+
+            <!-- Tab Navigation -->
+            <div class="flex bg-gray-950/80 p-1 rounded-xl border border-gray-800 text-xs sm:text-sm font-medium">
+                <button onclick="switchTab('dashboard')" id="tab-btn-dashboard" class="tab-btn px-4 py-1.5 rounded-lg transition-all duration-200 text-emerald-400 bg-gray-800 shadow">
+                    <i class="fa-solid fa-gauge-high mr-2"></i>Live Dashboard
+                </button>
+                <button onclick="switchTab('qtable')" id="tab-btn-qtable" class="tab-btn px-4 py-1.5 rounded-lg text-gray-400 hover:text-gray-200 transition-all duration-200">
+                    <i class="fa-solid fa-table-cells mr-2"></i>Q-Table Inspector
+                </button>
+                <button onclick="switchTab('guide')" id="tab-btn-guide" class="tab-btn px-4 py-1.5 rounded-lg text-gray-400 hover:text-gray-200 transition-all duration-200">
+                    <i class="fa-solid fa-book-open mr-2"></i>RL Guide & Theory
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-grow">
+        
+        <!-- DASHBOARD TAB -->
+        <div id="tab-dashboard" class="tab-content active space-y-6">
+            
+            <!-- Top Controls Toolbar -->
+            <div class="bg-gray-900/90 border border-gray-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 shadow-xl">
+                <!-- Action Controls -->
+                <div class="flex items-center flex-wrap gap-2">
+                    <button id="btn-toggle-train" onclick="toggleTraining()" class="px-5 py-2.5 rounded-xl font-semibold bg-emerald-500 text-gray-950 hover:bg-emerald-400 transition flex items-center shadow-lg shadow-emerald-500/20">
+                        <i id="icon-train" class="fa-solid fa-play mr-2"></i> <span id="text-train">Start Agent</span>
+                    </button>
+                    <button onclick="resetAgent()" class="px-4 py-2.5 rounded-xl font-medium bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white transition flex items-center border border-gray-700">
+                        <i class="fa-solid fa-rotate-left mr-2"></i> Reset Q-Table
+                    </button>
+                    <button id="btn-mode-toggle" onclick="toggleMode()" class="px-4 py-2.5 rounded-xl font-medium bg-purple-950/60 text-purple-300 border border-purple-800 hover:bg-purple-900/60 transition flex items-center">
+                        <i class="fa-solid fa-robot mr-2"></i> Mode: <span id="text-mode" class="ml-1 font-bold">AI Active</span>
+                    </button>
+                </div>
+
+                <!-- Speed Control Selector -->
+                <div class="flex items-center bg-gray-950 px-3 py-1.5 rounded-xl border border-gray-800 space-x-2">
+                    <span class="text-xs text-gray-400 font-medium mr-1"><i class="fa-solid fa-bolt text-yellow-500 mr-1"></i> Speed:</span>
+                    <button onclick="setSpeed(1)" class="speed-btn px-2.5 py-1 text-xs rounded-lg bg-gray-800 text-gray-200 hover:bg-gray-700 font-semibold" data-speed="1">1x</button>
+                    <button onclick="setSpeed(5)" class="speed-btn px-2.5 py-1 text-xs rounded-lg text-gray-400 hover:bg-gray-800 hover:text-gray-200 font-semibold" data-speed="5">5x</button>
+                    <button onclick="setSpeed(20)" class="speed-btn px-2.5 py-1 text-xs rounded-lg text-gray-400 hover:bg-gray-800 hover:text-gray-200 font-semibold" data-speed="20">20x</button>
+                    <button onclick="setSpeed(100)" class="speed-btn px-2.5 py-1 text-xs rounded-lg text-gray-400 hover:bg-gray-800 hover:text-gray-200 font-semibold" data-speed="100">Max Turbo</button>
+                </div>
+
+                <!-- Visualization Toggles -->
+                <div class="flex items-center space-x-4 text-xs font-medium text-gray-400">
+                    <label class="flex items-center space-x-2 cursor-pointer hover:text-gray-200">
+                        <input type="checkbox" id="chk-q-overlay" checked onchange="renderCanvas()" class="rounded bg-gray-950 border-gray-700 text-emerald-500 focus:ring-emerald-500/20">
+                        <span>Q-Overlay</span>
+                    </label>
+                    <label class="flex items-center space-x-2 cursor-pointer hover:text-gray-200">
+                        <input type="checkbox" id="chk-danger-overlay" checked onchange="renderCanvas()" class="rounded bg-gray-950 border-gray-700 text-red-500 focus:ring-red-500/20">
+                        <span>Sensor Raycasts</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Main Interactive Display Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                
+                <!-- Left Panel: Canvas & State Breakdown (5 Cols) -->
+                <div class="lg:col-span-5 space-y-6">
+                    
+                    <!-- Game Canvas Box -->
+                    <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex flex-col items-center justify-center relative shadow-xl overflow-hidden">
+                        <!-- Canvas Header Info -->
+                        <div class="w-full flex justify-between items-center mb-3 px-1 text-xs">
+                            <span class="flex items-center text-emerald-400 font-semibold">
+                                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping mr-2"></span>
+                                Live Grid Matrix (20x20)
+                            </span>
+                            <span id="canvas-status" class="text-gray-400 code-font">Status: Ready</span>
+                        </div>
+
+                        <!-- Main Canvas Wrapper -->
+                        <div class="relative aspect-square w-full max-w-[420px] bg-gray-950 rounded-xl border border-gray-800/80 shadow-inner overflow-hidden flex items-center justify-center">
+                            <canvas id="snakeCanvas" width="400" height="400" class="w-full h-full block"></canvas>
+                        </div>
+
+                        <!-- Manual Controls Tip -->
+                        <div id="manual-tip" class="hidden mt-3 text-xs text-yellow-400 bg-yellow-950/30 border border-yellow-800/40 px-3 py-1.5 rounded-lg text-center w-full">
+                            <i class="fa-solid fa-keyboard mr-1"></i> Manual Mode Active: Use Arrow Keys to control snake.
+                        </div>
+                    </div>
+
+                    <!-- State Vector Visualizer -->
+                    <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-3 shadow-xl">
+                        <h3 class="text-xs font-bold uppercase tracking-wider text-gray-400 flex items-center justify-between">
+                            <span><i class="fa-solid fa-eye text-cyan-400 mr-2"></i>Agent Perception Vector (State)</span>
+                            <span id="state-hash" class="code-font text-[10px] text-cyan-400 bg-cyan-950/50 border border-cyan-800 px-2 py-0.5 rounded">Binary Code: 00000000</span>
+                        </h3>
+                        
+                        <!-- Visual Badges for Sensor Inputs -->
+                        <div class="grid grid-cols-2 gap-2 text-xs">
+                            <!-- Hazards -->
+                            <div class="bg-gray-950 p-2.5 rounded-xl border border-gray-800/80 space-y-1">
+                                <span class="text-[11px] text-gray-400 font-medium block">Proximity Hazards</span>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-gray-400">Ahead:</span>
+                                    <span id="sensor-danger-straight" class="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-800 text-gray-400">CLEAR</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-gray-400">Left:</span>
+                                    <span id="sensor-danger-left" class="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-800 text-gray-400">CLEAR</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-gray-400">Right:</span>
+                                    <span id="sensor-danger-right" class="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-800 text-gray-400">CLEAR</span>
+                                </div>
+                            </div>
+
+                            <!-- Food Position -->
+                            <div class="bg-gray-950 p-2.5 rounded-xl border border-gray-800/80 space-y-1">
+                                <span class="text-[11px] text-gray-400 font-medium block">Target Food Vector</span>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-gray-400">X Direction:</span>
+                                    <span id="sensor-food-x" class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800">AHEAD</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-gray-400">Y Direction:</span>
+                                    <span id="sensor-food-y" class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800">RIGHT</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-gray-400">Heading:</span>
+                                    <span id="sensor-heading" class="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-950 text-purple-300 border border-purple-800">RIGHT</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Action Choice Q-Values -->
+                        <div class="bg-gray-950 p-3 rounded-xl border border-gray-800/80 space-y-2">
+                            <span class="text-[11px] text-gray-400 font-medium flex justify-between">
+                                <span>Action Q-Values (Current State)</span>
+                                <span id="chosen-action-label" class="text-emerald-400 font-bold">Action: Straight</span>
+                            </span>
+                            <div class="grid grid-cols-3 gap-2 text-center code-font">
+                                <div id="q-box-left" class="p-2 rounded-lg bg-gray-900 border border-gray-800">
+                                    <div class="text-[10px] text-gray-400 uppercase">Turn Left</div>
+                                    <div id="q-val-left" class="text-sm font-bold text-gray-200">0.00</div>
+                                </div>
+                                <div id="q-box-straight" class="p-2 rounded-lg bg-gray-900 border border-gray-800">
+                                    <div class="text-[10px] text-gray-400 uppercase">Straight</div>
+                                    <div id="q-val-straight" class="text-sm font-bold text-gray-200">0.00</div>
+                                </div>
+                                <div id="q-box-right" class="p-2 rounded-lg bg-gray-900 border border-gray-800">
+                                    <div class="text-[10px] text-gray-400 uppercase">Turn Right</div>
+                                    <div id="q-val-right" class="text-sm font-bold text-gray-200">0.00</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Right Panel: Telemetry Metrics & Charts (7 Cols) -->
+                <div class="lg:col-span-7 space-y-6">
+                    
+                    <!-- Live Performance Metrics Grid -->
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div class="bg-gray-900 border border-gray-800 rounded-2xl p-3.5 shadow-xl relative overflow-hidden">
+                            <div class="text-xs text-gray-400 font-medium">Episodes</div>
+                            <div id="stat-episodes" class="text-2xl font-black text-white mt-1 code-font">0</div>
+                            <div class="text-[10px] text-gray-400 mt-1 flex items-center justify-between">
+                                <span>Steps: <span id="stat-steps" class="text-gray-300 font-semibold">0</span></span>
+                            </div>
+                        </div>
+
+                        <div class="bg-gray-900 border border-gray-800 rounded-2xl p-3.5 shadow-xl relative overflow-hidden">
+                            <div class="text-xs text-gray-400 font-medium">Current Score</div>
+                            <div id="stat-score" class="text-2xl font-black text-emerald-400 mt-1 code-font">0</div>
+                            <div class="text-[10px] text-gray-400 mt-1 flex items-center justify-between">
+                                <span>High: <span id="stat-highscore" class="text-emerald-400 font-semibold">0</span></span>
+                            </div>
+                        </div>
+
+                        <div class="bg-gray-900 border border-gray-800 rounded-2xl p-3.5 shadow-xl relative overflow-hidden">
+                            <div class="text-xs text-gray-400 font-medium">Mean Score (50)</div>
+                            <div id="stat-mean-score" class="text-2xl font-black text-cyan-400 mt-1 code-font">0.0</div>
+                            <div class="text-[10px] text-cyan-500/80 mt-1">Rolling average</div>
+                        </div>
+
+                        <div class="bg-gray-900 border border-gray-800 rounded-2xl p-3.5 shadow-xl relative overflow-hidden">
+                            <div class="text-xs text-gray-400 font-medium">Exploration (ε)</div>
+                            <div id="stat-epsilon" class="text-2xl font-black text-purple-400 mt-1 code-font">1.000</div>
+                            <div class="w-full bg-gray-800 h-1.5 rounded-full mt-2 overflow-hidden">
+                                <div id="epsilon-bar" class="bg-purple-500 h-full transition-all duration-300" style="width: 100%"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Live Dynamic Training Progress Charts -->
+                    <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4 shadow-xl space-y-4">
+                        <div class="flex items-center justify-between border-b border-gray-800 pb-2">
+                            <h3 class="text-sm font-bold text-gray-200 flex items-center">
+                                <i class="fa-solid fa-chart-line text-emerald-400 mr-2"></i>Learning Performance Metrics
+                            </h3>
+                            <span class="text-xs text-gray-400">Live Updating (100 Ep Window)</span>
+                        </div>
+                        
+                        <!-- Chart Container -->
+                        <div class="h-56 w-full">
+                            <canvas id="performanceChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Hyperparameter & Reward Tuning Panel -->
+                    <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4 shadow-xl space-y-4">
+                        <h3 class="text-sm font-bold text-gray-200 flex items-center border-b border-gray-800 pb-2">
+                            <i class="fa-solid fa-sliders text-purple-400 mr-2"></i>Hyperparameters & Reward Structure
+                        </h3>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                            
+                            <!-- Hyperparameter Sliders -->
+                            <div class="space-y-3 bg-gray-950 p-3 rounded-xl border border-gray-800">
+                                <span class="font-semibold text-purple-300 block">Q-Learning Parameters</span>
+                                
+                                <div>
+                                    <div class="flex justify-between text-gray-400 mb-1">
+                                        <span>Learning Rate (&alpha;):</span>
+                                        <span id="val-alpha" class="text-white font-semibold code-font">0.10</span>
+                                    </div>
+                                    <input type="range" id="param-alpha" min="0.01" max="0.5" step="0.01" value="0.10" oninput="updateParams()" class="w-full accent-purple-500 bg-gray-800 rounded">
+                                </div>
+
+                                <div>
+                                    <div class="flex justify-between text-gray-400 mb-1">
+                                        <span>Discount Factor (&gamma;):</span>
+                                        <span id="val-gamma" class="text-white font-semibold code-font">0.95</span>
+                                    </div>
+                                    <input type="range" id="param-gamma" min="0.80" max="0.99" step="0.01" value="0.95" oninput="updateParams()" class="w-full accent-purple-500 bg-gray-800 rounded">
+                                </div>
+
+                                <div>
+                                    <div class="flex justify-between text-gray-400 mb-1">
+                                        <span>Epsilon Decay Rate:</span>
+                                        <span id="val-decay" class="text-white font-semibold code-font">0.995</span>
+                                    </div>
+                                    <input type="range" id="param-decay" min="0.990" max="0.999" step="0.001" value="0.995" oninput="updateParams()" class="w-full accent-purple-500 bg-gray-800 rounded">
+                                </div>
+                            </div>
+
+                            <!-- Reward Structure Tuning -->
+                            <div class="space-y-3 bg-gray-950 p-3 rounded-xl border border-gray-800">
+                                <span class="font-semibold text-emerald-300 block">Reward System Matrix</span>
+
+                                <div>
+                                    <div class="flex justify-between text-gray-400 mb-1">
+                                        <span>Food Reward ($R_{food}$):</span>
+                                        <span id="val-r-food" class="text-emerald-400 font-semibold code-font">+10</span>
+                                    </div>
+                                    <input type="range" id="param-r-food" min="5" max="30" step="1" value="10" oninput="updateParams()" class="w-full accent-emerald-500 bg-gray-800 rounded">
+                                </div>
+
+                                <div>
+                                    <div class="flex justify-between text-gray-400 mb-1">
+                                        <span>Death Penalty ($R_{die}$):</span>
+                                        <span id="val-r-die" class="text-red-400 font-semibold code-font">-10</span>
+                                    </div>
+                                    <input type="range" id="param-r-die" min="-30" max="-5" step="1" value="-10" oninput="updateParams()" class="w-full accent-red-500 bg-gray-800 rounded">
+                                </div>
+
+                                <div>
+                                    <div class="flex justify-between text-gray-400 mb-1">
+                                        <span>Step Penalty ($R_{step}$):</span>
+                                        <span id="val-r-step" class="text-gray-300 font-semibold code-font">-0.1</span>
+                                    </div>
+                                    <input type="range" id="param-r-step" min="-1.0" max="0.0" step="0.05" value="-0.1" oninput="updateParams()" class="w-full accent-gray-500 bg-gray-800 rounded">
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <!-- Q-TABLE INSPECTOR TAB -->
+        <div id="tab-qtable" class="tab-content space-y-6">
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-6 shadow-xl space-y-4">
+                <div class="flex flex-wrap items-center justify-between gap-4 border-b border-gray-800 pb-4">
+                    <div>
+                        <h2 class="text-lg font-bold text-white flex items-center">
+                            <i class="fa-solid fa-table-cells text-cyan-400 mr-2"></i>Q-Table Knowledge Inspector
+                        </h2>
+                        <p class="text-xs text-gray-400 mt-1">Explore all learned state-action pairs currently held in the agent's memory.</p>
+                    </div>
+                    
+                    <div class="flex items-center space-x-3">
+                        <span class="text-xs text-gray-400">Total Learned States: <span id="q-table-count" class="text-cyan-400 font-bold code-font">0</span></span>
+                        <input type="text" id="qtable-search" oninput="filterQTable()" placeholder="Search State Key..." class="bg-gray-950 border border-gray-800 text-xs text-white px-3 py-1.5 rounded-xl focus:outline-none focus:border-cyan-500">
+                    </div>
+                </div>
+
+                <!-- Table Wrapper -->
+                <div class="overflow-x-auto max-h-[500px] overflow-y-auto rounded-xl border border-gray-800">
+                    <table class="w-full text-left text-xs text-gray-300">
+                        <thead class="bg-gray-950 text-gray-400 uppercase text-[10px] sticky top-0 z-10 border-b border-gray-800">
+                            <tr>
+                                <th class="py-3 px-4">State Representation Vector (Hazards | Food | Heading)</th>
+                                <th class="py-3 px-4 text-center">Turn Left Q-Val</th>
+                                <th class="py-3 px-4 text-center">Straight Q-Val</th>
+                                <th class="py-3 px-4 text-center">Turn Right Q-Val</th>
+                                <th class="py-3 px-4 text-center">Best Action</th>
+                                <th class="py-3 px-4 text-center">Visits</th>
+                            </tr>
+                        </thead>
+                        <tbody id="qtable-body" class="divide-y divide-gray-800/60 code-font">
+                            <!-- Populated Dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- EDUCATIONAL GUIDE TAB -->
+        <div id="tab-guide" class="tab-content space-y-6">
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-6 shadow-xl space-y-6 max-w-4xl mx-auto">
+                <div>
+                    <h2 class="text-xl font-bold text-white flex items-center">
+                        <i class="fa-solid fa-graduation-cap text-purple-400 mr-3"></i>Reinforcement Learning (Q-Learning) Architecture
+                    </h2>
+                    <p class="text-sm text-gray-400 mt-1">A step-by-step breakdown of how tabular Q-learning enables an AI agent to master the game of Snake.</p>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Step 1: State Space -->
+                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-2">
+                        <div class="flex items-center text-emerald-400 font-bold text-sm">
+                            <span class="w-6 h-6 rounded-full bg-emerald-500/20 flex items-center justify-center mr-2 text-xs">1</span>
+                            State Representation ($S$)
+                        </div>
+                        <p class="text-xs text-gray-300 leading-relaxed">
+                            Instead of using raw pixels or absolute board coordinates, we reduce the environment state to an 11-bit relative vector:
+                        </p>
+                        <ul class="text-xs text-gray-400 space-y-1 list-disc list-inside">
+                            <li><strong class="text-gray-200">Danger Ahead, Left, Right</strong> (3 bits: binary 0 or 1)</li>
+                            <li><strong class="text-gray-200">Food Direction</strong> (4 bits: Up, Down, Left, Right relative)</li>
+                            <li><strong class="text-gray-200">Current Direction</strong> (4 bits: North, South, East, West)</li>
+                        </ul>
+                        <p class="text-[11px] text-gray-400 italic">This spatial abstraction reduces the total state space to just $2^3 \times 4 \times 4 = 128$ distinct states!</p>
+                    </div>
+
+                    <!-- Step 2: Action Space -->
+                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-2">
+                        <div class="flex items-center text-cyan-400 font-bold text-sm">
+                            <span class="w-6 h-6 rounded-full bg-cyan-500/20 flex items-center justify-center mr-2 text-xs">2</span>
+                            Action Space ($A$)
+                        </div>
+                        <p class="text-xs text-gray-300 leading-relaxed">
+                            At every discrete tick, the snake agent must choose one of 3 relative actions:
+                        </p>
+                        <div class="grid grid-cols-3 gap-2 text-center text-xs code-font pt-1">
+                            <div class="p-2 bg-gray-900 rounded border border-gray-800">
+                                <span class="block font-bold text-cyan-300">Action 0</span>
+                                <span class="text-[10px] text-gray-400">Turn Left</span>
+                            </div>
+                            <div class="p-2 bg-gray-900 rounded border border-gray-800">
+                                <span class="block font-bold text-cyan-300">Action 1</span>
+                                <span class="text-[10px] text-gray-400">Straight</span>
+                            </div>
+                            <div class="p-2 bg-gray-900 rounded border border-gray-800">
+                                <span class="block font-bold text-cyan-300">Action 2</span>
+                                <span class="text-[10px] text-gray-400">Turn Right</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bellman Equation Box -->
+                <div class="bg-purple-950/20 border border-purple-800/50 p-5 rounded-2xl space-y-3">
+                    <h3 class="text-sm font-bold text-purple-300 flex items-center">
+                        <i class="fa-solid fa-square-root-variable mr-2"></i>The Bellman Equation for Temporal Difference Learning
+                    </h3>
+                    <div class="bg-gray-950 p-4 rounded-xl text-center border border-purple-900/60 overflow-x-auto text-base text-purple-200 font-mono">
+                        $$Q(s, a) \leftarrow Q(s, a) + \alpha \cdot \left[ R + \gamma \cdot \max_{a'} Q(s', a') - Q(s, a) \right]$$
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-gray-300">
+                        <div>
+                            <span class="text-purple-400 font-semibold">&alpha; (Learning Rate):</span> Controls how heavily new information overrides old estimates.
+                        </div>
+                        <div>
+                            <span class="text-purple-400 font-semibold">&gamma; (Discount Factor):</span> Weight placed on future rewards vs immediate gratification.
+                        </div>
+                        <div>
+                            <span class="text-purple-400 font-semibold">$R$ (Reward Signal):</span> Environment feedback received after executing action $a$.
+                        </div>
+                        <div>
+                            <span class="text-purple-400 font-semibold">$\max Q(s',a')$:</span> Maximum estimated value reachable from the new state $s'$.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 3 & 4: Exploration & Rewards -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
+                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-2">
+                        <h4 class="font-bold text-yellow-400 flex items-center">
+                            <i class="fa-solid fa-dice mr-2"></i>Epsilon-Greedy Strategy ($\varepsilon$)
+                        </h4>
+                        <p class="text-gray-300 leading-relaxed">
+                            To balance <strong>Exploration</strong> (trying random moves to discover optimal paths) and <strong>Exploitation</strong> (choosing the move with highest Q-value), we use an Epsilon decay strategy:
+                        </p>
+                        <p class="code-font text-yellow-300/90 text-[11px] bg-gray-900 p-2 rounded">
+                            with probability &epsilon; &rarr; Choose Random Action<br>
+                            with probability 1-&epsilon; &rarr; Choose argmax Q(s, a)
+                        </p>
+                    </div>
+
+                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-2">
+                        <h4 class="font-bold text-emerald-400 flex items-center">
+                            <i class="fa-solid fa-trophy mr-2"></i>Reward Function Design
+                        </h4>
+                        <p class="text-gray-300 leading-relaxed">
+                            The agent learns purely by feedback derived from its actions:
+                        </p>
+                        <ul class="space-y-1 text-gray-400">
+                            <li><span class="text-emerald-400 font-semibold">+10 points</span>: Eating food unit.</li>
+                            <li><span class="text-red-400 font-semibold">-10 points</span>: Colliding with wall or self body.</li>
+                            <li><span class="text-gray-300 font-semibold">-0.1 point</span>: Every step penalty to discourage endless looping.</li>
+                        </ul>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-gray-800/80 bg-gray-950/60 py-4 text-center text-xs text-gray-400">
+        <p>Interactive Reinforcement Learning Snake Lab &bull; Built with Vanilla JavaScript, HTML5 Canvas & Chart.js</p>
+    </footer>
+
+    <!-- JAVASCRIPT LOGIC -->
+    <script>
+        /**
+         * REINFORCEMENT LEARNING SNAKE ENGINE
+         */
+
+        // Canvas & Context Setup
+        const canvas = document.getElementById('snakeCanvas');
+        const ctx = canvas.getContext('2d');
+        const GRID_SIZE = 20;
+        const CELL_SIZE = canvas.width / GRID_SIZE;
+
+        // Game State Variables
+        let snake = [];
+        let food = { x: 0, y: 0 };
+        let dir = { x: 1, y: 0 }; // Initial heading Right
+        let isGameOver = false;
+        let score = 0;
+        let highScore = 0;
+        let stepsInEpisode = 0;
+
+        // RL Agent Hyperparameters
+        let alpha = 0.10;      // Learning rate
+        let gamma = 0.95;      // Discount factor
+        let epsilon = 1.0;     // Exploration rate
+        let epsilonMin = 0.01;
+        let epsilonDecay = 0.995;
+
+        // Rewards
+        let rFood = 10;
+        let rDie = -10;
+        let rStep = -0.1;
+
+        // Q-Table Structure: State Key String -> Array of 3 Q-values [Turn Left, Straight, Turn Right]
+        let qTable = {};
+        let stateVisits = {};
+
+        // Simulation & Training Loop State
+        let isTraining = false;
+        let isManualMode = false;
+        let simSpeed = 1;
+        let timerId = null;
+        let episodeCount = 0;
+        let scoreHistory = [];
+        let rewardHistory = [];
+
+        // Directions definition: Clockwise indexing [UP, RIGHT, DOWN, LEFT]
+        const DIRS = [
+            { x: 0, y: -1 }, // 0: UP
+            { x: 1, y: 0 },  // 1: RIGHT
+            { x: 0, y: 1 },  // 2: DOWN
+            { x: -1, y: 0 }  // 3: LEFT
+        ];
+
+        // Chart.js Instance
+        let perfChart = null;
+
+        // Initialize Game Environment & Chart on Window Load
+        window.onload = function() {
+            initChart();
+            resetGame();
+            renderCanvas();
+            updateUI();
+
+            // Keyboard listener for manual mode
+            window.addEventListener('keydown', handleKeyDown);
+        };
+
+        // --- TAB SWITCHER ---
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => {
+                el.classList.remove('text-emerald-400', 'bg-gray-800', 'shadow');
+                el.classList.add('text-gray-400');
+            });
+
+            document.getElementById(`tab-${tabId}`).classList.add('active');
+            const btn = document.getElementById(`tab-btn-${tabId}`);
+            btn.classList.add('text-emerald-400', 'bg-gray-800', 'shadow');
+            btn.classList.remove('text-gray-400');
+
+            if (tabId === 'qtable') {
+                renderQTableInspector();
+            }
+        }
+
+        // --- GAME LOGIC ---
+        function resetGame() {
+            // Place snake in center
+            const startX = Math.floor(GRID_SIZE / 2);
+            const startY = Math.floor(GRID_SIZE / 2);
+            snake = [
+                { x: startX, y: startY },
+                { x: startX - 1, y: startY },
+                { x: startX - 2, y: startY }
+            ];
+            dir = { x: 1, y: 0 }; // Right
+            score = 0;
+            stepsInEpisode = 0;
+            isGameOver = false;
+            spawnFood();
+        }
+
+        function spawnFood() {
+            let valid = false;
+            while (!valid) {
+                food = {
+                    x: Math.floor(Math.random() * GRID_SIZE),
+                    y: Math.floor(Math.random() * GRID_SIZE)
+                };
+                valid = !snake.some(segment => segment.x === food.x && segment.y === food.y);
+            }
+        }
+
+        function getDirectionIndex(d) {
+            return DIRS.findIndex(item => item.x === d.x && item.y === d.y);
+        }
+
+        // --- STATE REPRESENTATION ---
+        // Converts current game context into state vector key
+        function getStateVector() {
+            const head = snake[0];
+            const currentDirIdx = getDirectionIndex(dir);
+
+            // Relative directions based on current heading:
+            // 0: Straight, 1: Turn Left (-1 mod 4), 2: Turn Right (+1 mod 4)
+            const leftDirIdx = (currentDirIdx + 3) % 4;
+            const rightDirIdx = (currentDirIdx + 1) % 4;
+
+            const straightPos = { x: head.x + DIRS[currentDirIdx].x, y: head.y + DIRS[currentDirIdx].y };
+            const leftPos = { x: head.x + DIRS[leftDirIdx].x, y: head.y + DIRS[leftDirIdx].y };
+            const rightPos = { x: head.x + DIRS[rightDirIdx].x, y: head.y + DIRS[rightDirIdx].y };
+
+            // Hazard checks
+            const dangerStraight = isCollision(straightPos) ? 1 : 0;
+            const dangerLeft = isCollision(leftPos) ? 1 : 0;
+            const dangerRight = isCollision(rightPos) ? 1 : 0;
+
+            // Food relative position
+            const foodLeft = food.x < head.x ? 1 : 0;
+            const foodRight = food.x > head.x ? 1 : 0;
+            const foodUp = food.y < head.y ? 1 : 0;
+            const foodDown = food.y > head.y ? 1 : 0;
+
+            // State String Key
+            const stateKey = `${dangerStraight}${dangerLeft}${dangerRight}_${foodLeft}${foodRight}${foodUp}${foodDown}_${currentDirIdx}`;
+            
+            return {
+                key: stateKey,
+                details: { dangerStraight, dangerLeft, dangerRight, foodLeft, foodRight, foodUp, foodDown, currentDirIdx }
+            };
+        }
+
+        function isCollision(pos) {
+            // Wall collision
+            if (pos.x < 0 || pos.x >= GRID_SIZE || pos.y < 0 || pos.y >= GRID_SIZE) {
+                return true;
+            }
+            // Body collision (excluding tail as it moves forward next step, but checking safely)
+            return snake.some((seg, idx) => idx < snake.length - 1 && seg.x === pos.x && seg.y === pos.y);
+        }
+
+        // --- Q-LEARNING CORE ENGINE ---
+        function getQValues(stateKey) {
+            if (!qTable[stateKey]) {
+                qTable[stateKey] = [0.0, 0.0, 0.0]; // [Left, Straight, Right]
+            }
+            return qTable[stateKey];
+        }
+
+        function chooseAction(stateKey) {
+            // Epsilon-Greedy Policy
+            if (!isManualMode && Math.random() < epsilon) {
+                return Math.floor(Math.random() * 3); // Random Action 0, 1, or 2
+            } else {
+                const qValues = getQValues(stateKey);
+                // Argmax action
+                let bestAction = 0;
+                let maxQ = qValues[0];
+                for (let a = 1; a < 3; a++) {
+                    if (qValues[a] > maxQ) {
+                        maxQ = qValues[a];
+                        bestAction = a;
+                    }
+                }
+                return bestAction;
+            }
+        }
+
+        // Maps relative action (0: Left, 1: Straight, 2: Right) to new absolute direction
+        function getNewDirection(action) {
+            const currentDirIdx = getDirectionIndex(dir);
+            let newDirIdx = currentDirIdx;
+            if (action === 0) {
+                newDirIdx = (currentDirIdx + 3) % 4; // Turn Left
+            } else if (action === 2) {
+                newDirIdx = (currentDirIdx + 1) % 4; // Turn Right
+            }
+            return DIRS[newDirIdx];
+        }
+
+        function stepAgent() {
+            if (isGameOver) {
+                episodeCount++;
+                if (score > highScore) highScore = score;
+
+                // Decay Epsilon
+                epsilon = Math.max(epsilonMin, epsilon * epsilonDecay);
+
+                // Record history & Update Chart
+                scoreHistory.push(score);
+                if (scoreHistory.length > 100) scoreHistory.shift();
+
+                updateChart();
+                resetGame();
+                return;
+            }
+
+            stepsInEpisode++;
+
+            // 1. Current State
+            const stateObj = getStateVector();
+            const stateKey = stateObj.key;
+
+            // Track state visits
+            stateVisits[stateKey] = (stateVisits[stateKey] || 0) + 1;
+
+            // 2. Choose Action
+            const action = chooseAction(stateKey);
+
+            // 3. Execute Action & Update Snake Direction
+            dir = getNewDirection(action);
+            const head = snake[0];
+            const newHead = { x: head.x + dir.x, y: head.y + dir.y };
+
+            let reward = rStep;
+            let eatFood = false;
+
+            // Check Collisions
+            if (isCollision(newHead)) {
+                isGameOver = true;
+                reward = rDie;
+            } else {
+                // Move Snake Head
+                snake.unshift(newHead);
+
+                // Check Food Collision
+                if (newHead.x === food.x && newHead.y === food.y) {
+                    score++;
+                    reward = rFood;
+                    eatFood = true;
+                    spawnFood();
+                } else {
+                    snake.pop(); // Remove tail
+                }
+            }
+
+            // 4. Next State & Bellman Update
+            const nextStateKey = getStateVector().key;
+            const currentQ = getQValues(stateKey)[action];
+            const nextMaxQ = Math.max(...getQValues(nextStateKey));
+
+            // Q-Learning Formula: Q(s,a) = Q(s,a) + alpha * [Reward + gamma * max(Q(s',a')) - Q(s,a)]
+            const newQ = currentQ + alpha * (reward + gamma * (isGameOver ? 0 : nextMaxQ) - currentQ);
+            qTable[stateKey][action] = newQ;
+
+            // UI Refresh for 1x speed or UI elements
+            updateStateInspector(stateObj, action, getQValues(stateKey));
+        }
+
+        // --- SIMULATION TICK LOOP ---
+        function runSimulation() {
+            if (!isTraining) return;
+
+            // Run speed multiplier steps per tick
+            for (let i = 0; i < simSpeed; i++) {
+                stepAgent();
+            }
+
+            renderCanvas();
+            updateUI();
+
+            // Request next frame
+            timerId = setTimeout(runSimulation, simSpeed === 1 ? 80 : 2);
+        }
+
+        function toggleTraining() {
+            isTraining = !isTraining;
+            const btn = document.getElementById('btn-toggle-train');
+            const icon = document.getElementById('icon-train');
+            const text = document.getElementById('text-train');
+
+            if (isTraining) {
+                icon.className = 'fa-solid fa-pause mr-2';
+                text.innerText = 'Pause Agent';
+                btn.className = 'px-5 py-2.5 rounded-xl font-semibold bg-amber-500 text-gray-950 hover:bg-amber-400 transition flex items-center shadow-lg shadow-amber-500/20';
+                runSimulation();
+            } else {
+                icon.className = 'fa-solid fa-play mr-2';
+                text.innerText = 'Start Agent';
+                btn.className = 'px-5 py-2.5 rounded-xl font-semibold bg-emerald-500 text-gray-950 hover:bg-emerald-400 transition flex items-center shadow-lg shadow-emerald-500/20';
+                if (timerId) clearTimeout(timerId);
+            }
+        }
+
+        function resetAgent() {
+            qTable = {};
+            stateVisits = {};
+            episodeCount = 0;
+            scoreHistory = [];
+            epsilon = 1.0;
+            highScore = 0;
+            resetGame();
+            renderCanvas();
+            updateChart();
+            updateUI();
+            if (document.getElementById('tab-qtable').classList.contains('active')) {
+                renderQTableInspector();
+            }
+        }
+
+        function toggleMode() {
+            isManualMode = !isManualMode;
+            const btnMode = document.getElementById('btn-mode-toggle');
+            const textMode = document.getElementById('text-mode');
+            const manualTip = document.getElementById('manual-tip');
+
+            if (isManualMode) {
+                textMode.innerText = 'Manual Player';
+                btnMode.className = 'px-4 py-2.5 rounded-xl font-medium bg-yellow-950/60 text-yellow-300 border border-yellow-800 hover:bg-yellow-900/60 transition flex items-center';
+                manualTip.classList.remove('hidden');
+            } else {
+                textMode.innerText = 'AI Active';
+                btnMode.className = 'px-4 py-2.5 rounded-xl font-medium bg-purple-950/60 text-purple-300 border border-purple-800 hover:bg-purple-900/60 transition flex items-center';
+                manualTip.classList.add('hidden');
+            }
+        }
+
+        function setSpeed(spd) {
+            simSpeed = spd;
+            document.querySelectorAll('.speed-btn').forEach(btn => {
+                if (parseInt(btn.getAttribute('data-speed')) === spd) {
+                    btn.className = 'speed-btn px-2.5 py-1 text-xs rounded-lg bg-emerald-500 text-gray-950 font-bold';
+                } else {
+                    btn.className = 'speed-btn px-2.5 py-1 text-xs rounded-lg text-gray-400 hover:bg-gray-800 hover:text-gray-200 font-semibold';
+                }
+            });
+        }
+
+        function handleKeyDown(e) {
+            if (!isManualMode) return;
+            const currentDirIdx = getDirectionIndex(dir);
+            if (e.key === 'ArrowUp' && currentDirIdx !== 2) dir = { x: 0, y: -1 };
+            if (e.key === 'ArrowRight' && currentDirIdx !== 3) dir = { x: 1, y: 0 };
+            if (e.key === 'ArrowDown' && currentDirIdx !== 0) dir = { x: 0, y: 1 };
+            if (e.key === 'ArrowLeft' && currentDirIdx !== 1) dir = { x: -1, y: 0 };
+        }
+
+        function updateParams() {
+            alpha = parseFloat(document.getElementById('param-alpha').value);
+            gamma = parseFloat(document.getElementById('param-gamma').value);
+            epsilonDecay = parseFloat(document.getElementById('param-decay').value);
+            rFood = parseFloat(document.getElementById('param-r-food').value);
+            rDie = parseFloat(document.getElementById('param-r-die').value);
+            rStep = parseFloat(document.getElementById('param-r-step').value);
+
+            document.getElementById('val-alpha').innerText = alpha.toFixed(2);
+            document.getElementById('val-gamma').innerText = gamma.toFixed(2);
+            document.getElementById('val-decay').innerText = epsilonDecay.toFixed(3);
+            document.getElementById('val-r-food').innerText = `+${rFood}`;
+            document.getElementById('val-r-die').innerText = `${rDie}`;
+            document.getElementById('val-r-step').innerText = `${rStep}`;
+        }
+
+        // --- CANVAS RENDERING ENGINE ---
+        function renderCanvas() {
+            // Clear Background Grid
+            ctx.fillStyle = '#060913';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw subtle grid lines
+            ctx.strokeStyle = '#111827';
+            ctx.lineWidth = 1;
+            for (let i = 0; i <= canvas.width; i += CELL_SIZE) {
+                ctx.beginPath();
+                ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(0, i); ctx.lineTo(canvas.width, i);
+                ctx.stroke();
+            }
+
+            // Draw Food (Glowing Orb)
+            const foodPx = food.x * CELL_SIZE + CELL_SIZE / 2;
+            const foodPy = food.y * CELL_SIZE + CELL_SIZE / 2;
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = '#10B981';
+            ctx.fillStyle = '#10B981';
+            ctx.beginPath();
+            ctx.arc(foodPx, foodPy, CELL_SIZE / 2.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0; // Reset shadow
+
+            // Draw Snake Body
+            snake.forEach((seg, idx) => {
+                const px = seg.x * CELL_SIZE;
+                const py = seg.y * CELL_SIZE;
+
+                if (idx === 0) {
+                    // Head
+                    ctx.fillStyle = '#8B5CF6'; // Accent Purple Head
+                    ctx.beginPath();
+                    ctx.roundRect(px + 1, py + 1, CELL_SIZE - 2, CELL_SIZE - 2, 6);
+                    ctx.fill();
+
+                    // Eyes
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.beginPath();
+                    ctx.arc(px + CELL_SIZE * 0.35, py + CELL_SIZE * 0.35, 2.5, 0, Math.PI * 2);
+                    ctx.arc(px + CELL_SIZE * 0.65, py + CELL_SIZE * 0.35, 2.5, 0, Math.PI * 2);
+                    ctx.fill();
+                } else {
+                    // Body Gradient
+                    const alphaVal = Math.max(0.3, 1 - (idx / snake.length) * 0.6);
+                    ctx.fillStyle = `rgba(139, 92, 246, ${alphaVal})`;
+                    ctx.beginPath();
+                    ctx.roundRect(px + 1, py + 1, CELL_SIZE - 2, CELL_SIZE - 2, 4);
+                    ctx.fill();
+                }
+            });
+
+            // Draw Overlays if Enabled
+            const head = snake[0];
+            const stateObj = getStateVector();
+
+            // 1. Hazard Raycast Sensor Highlights
+            if (document.getElementById('chk-danger-overlay').checked) {
+                const currentDirIdx = getDirectionIndex(dir);
+                const leftDirIdx = (currentDirIdx + 3) % 4;
+                const rightDirIdx = (currentDirIdx + 1) % 4;
+
+                const checkPositions = [
+                    { pos: { x: head.x + DIRS[currentDirIdx].x, y: head.y + DIRS[currentDirIdx].y }, isDanger: stateObj.details.dangerStraight },
+                    { pos: { x: head.x + DIRS[leftDirIdx].x, y: head.y + DIRS[leftDirIdx].y }, isDanger: stateObj.details.dangerLeft },
+                    { pos: { x: head.x + DIRS[rightDirIdx].x, y: head.y + DIRS[rightDirIdx].y }, isDanger: stateObj.details.dangerRight }
+                ];
+
+                checkPositions.forEach(item => {
+                    const cx = item.pos.x * CELL_SIZE;
+                    const cy = item.pos.y * CELL_SIZE;
+                    if (item.isDanger) {
+                        ctx.strokeStyle = '#EF4444';
+                        ctx.fillStyle = 'rgba(239, 68, 68, 0.25)';
+                        ctx.lineWidth = 2;
+                        ctx.fillRect(cx + 2, cy + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+                        ctx.strokeRect(cx + 2, cy + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+                    }
+                });
+            }
+
+            // 2. Q-Value Arrows / Values Around Head
+            if (document.getElementById('chk-q-overlay').checked) {
+                const qValues = getQValues(stateObj.key);
+                const currentDirIdx = getDirectionIndex(dir);
+
+                // Relative actions mapping to screen directions:
+                const actionsRel = [
+                    { action: 0, dirIdx: (currentDirIdx + 3) % 4, label: 'L' }, // Left
+                    { action: 1, dirIdx: currentDirIdx, label: 'S' },            // Straight
+                    { action: 2, dirIdx: (currentDirIdx + 1) % 4, label: 'R' }  // Right
+                ];
+
+                actionsRel.forEach(item => {
+                    const d = DIRS[item.dirIdx];
+                    const targetX = (head.x + d.x) * CELL_SIZE + CELL_SIZE / 2;
+                    const targetY = (head.y + d.y) * CELL_SIZE + CELL_SIZE / 2;
+                    const qVal = qValues[item.action];
+
+                    ctx.font = '9px Fira Code';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillStyle = qVal > 0 ? '#10B981' : qVal < 0 ? '#EF4444' : '#9CA3AF';
+                    ctx.fillText(qVal.toFixed(1), targetX, targetY);
+                });
+            }
+        }
+
+        // --- STATE & UI VISUALIZERS ---
+        function updateStateInspector(stateObj, chosenAction, qValues) {
+            const d = stateObj.details;
+
+            // Update Sensor Badges
+            setSensorBadge('sensor-danger-straight', d.dangerStraight, 'HAZARD', 'CLEAR');
+            setSensorBadge('sensor-danger-left', d.dangerLeft, 'HAZARD', 'CLEAR');
+            setSensorBadge('sensor-danger-right', d.dangerRight, 'HAZARD', 'CLEAR');
+
+            document.getElementById('sensor-food-x').innerText = d.foodLeft ? 'LEFT' : d.foodRight ? 'RIGHT' : 'ALIGNED';
+            document.getElementById('sensor-food-y').innerText = d.foodUp ? 'UP' : d.foodDown ? 'DOWN' : 'ALIGNED';
+
+            const headings = ['UP', 'RIGHT', 'DOWN', 'LEFT'];
+            document.getElementById('sensor-heading').innerText = headings[d.currentDirIdx];
+            document.getElementById('state-hash').innerText = `Key: ${stateObj.key}`;
+
+            // Update Action Q-Values
+            document.getElementById('q-val-left').innerText = qValues[0].toFixed(2);
+            document.getElementById('q-val-straight').innerText = qValues[1].toFixed(2);
+            document.getElementById('q-val-right').innerText = qValues[2].toFixed(2);
+
+            // Highlight Chosen Action Box
+            ['q-box-left', 'q-box-straight', 'q-box-right'].forEach((id, idx) => {
+                const el = document.getElementById(id);
+                if (idx === chosenAction) {
+                    el.className = 'p-2 rounded-lg bg-emerald-950/80 border border-emerald-500 shadow-sm';
+                } else {
+                    el.className = 'p-2 rounded-lg bg-gray-900 border border-gray-800';
+                }
+            });
+
+            const actionNames = ['Turn Left', 'Go Straight', 'Turn Right'];
+            document.getElementById('chosen-action-label').innerText = `Selected: ${actionNames[chosenAction]}`;
+        }
+
+        function setSensorBadge(id, isDanger, dangerText, safeText) {
+            const el = document.getElementById(id);
+            if (isDanger) {
+                el.innerText = dangerText;
+                el.className = 'px-2 py-0.5 rounded text-[10px] font-bold bg-red-950 text-red-400 border border-red-800';
+            } else {
+                el.innerText = safeText;
+                el.className = 'px-2 py-0.5 rounded text-[10px] font-bold bg-gray-800 text-gray-400';
+            }
+        }
+
+        function updateUI() {
+            document.getElementById('stat-episodes').innerText = episodeCount;
+            document.getElementById('stat-steps').innerText = stepsInEpisode;
+            document.getElementById('stat-score').innerText = score;
+            document.getElementById('stat-highscore').innerText = highScore;
+            document.getElementById('stat-epsilon').innerText = epsilon.toFixed(3);
+            document.getElementById('epsilon-bar').style.width = `${Math.max(0, epsilon * 100)}%`;
+
+            // Calculate Mean Score (Rolling 50)
+            const recent = scoreHistory.slice(-50);
+            const avg = recent.length ? (recent.reduce((a, b) => a + b, 0) / recent.length).toFixed(1) : '0.0';
+            document.getElementById('stat-mean-score').innerText = avg;
+
+            document.getElementById('canvas-status').innerText = isTraining 
+                ? `Running (${simSpeed}x)` 
+                : 'Paused';
+        }
+
+        // --- CHART.JS METRICS CHART ---
+        function initChart() {
+            const chartCtx = document.getElementById('performanceChart').getContext('2d');
+            perfChart = new Chart(chartCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'Episode Score',
+                            data: [],
+                            borderColor: '#10B981',
+                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                            borderWidth: 1.5,
+                            fill: true,
+                            tension: 0.3,
+                            pointRadius: 0
+                        },
+                        {
+                            label: 'Moving Avg (50)',
+                            data: [],
+                            borderColor: '#06B6D4',
+                            borderWidth: 2.5,
+                            fill: false,
+                            tension: 0.3,
+                            pointRadius: 0
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    scales: {
+                        x: {
+                            grid: { color: '#1F2937' },
+                            ticks: { color: '#9CA3AF', font: { size: 10 } },
+                            title: { display: true, text: 'Episodes', color: '#6B7280', font: { size: 10 } }
+                        },
+                        y: {
+                            grid: { color: '#1F2937' },
+                            ticks: { color: '#9CA3AF', font: { size: 10 } },
+                            min: 0
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            labels: { color: '#E5E7EB', font: { size: 11 } }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateChart() {
+            if (!perfChart) return;
+
+            const labels = scoreHistory.map((_, i) => i + 1);
+            
+            // Calculate 50-episode moving average
+            const movingAvg = scoreHistory.map((val, idx, arr) => {
+                const start = Math.max(0, idx - 49);
+                const subset = arr.slice(start, idx + 1);
+                return subset.reduce((a, b) => a + b, 0) / subset.length;
+            });
+
+            perfChart.data.labels = labels;
+            perfChart.data.datasets[0].data = scoreHistory;
+            perfChart.data.datasets[1].data = movingAvg;
+            perfChart.update();
+        }
+
+        // --- Q-TABLE INSPECTOR RENDERER ---
+        function renderQTableInspector() {
+            const tbody = document.getElementById('qtable-body');
+            const keys = Object.keys(qTable);
+            document.getElementById('q-table-count').innerText = keys.length;
+
+            if (keys.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-gray-500 italic">No Q-Table data learned yet. Start training to populate state knowledge!</td></tr>`;
+                return;
+            }
+
+            let html = '';
+            keys.slice(0, 100).forEach(key => { // Render up to top 100 for responsiveness
+                const qValues = qTable[key];
+                const visits = stateVisits[key] || 0;
+                
+                // Best action
+                let bestIdx = 0;
+                if (qValues[1] > qValues[bestIdx]) bestIdx = 1;
+                if (qValues[2] > qValues[bestIdx]) bestIdx = 2;
+
+                const actionLabels = ['Turn Left', 'Straight', 'Turn Right'];
+
+                html += `
+                    <tr class="hover:bg-gray-800/40 transition border-b border-gray-800/50">
+                        <td class="py-2.5 px-4 font-mono text-cyan-300">${key}</td>
+                        <td class="py-2.5 px-4 text-center ${qValues[0] < 0 ? 'text-red-400' : 'text-emerald-400'}">${qValues[0].toFixed(3)}</td>
+                        <td class="py-2.5 px-4 text-center ${qValues[1] < 0 ? 'text-red-400' : 'text-emerald-400'}">${qValues[1].toFixed(3)}</td>
+                        <td class="py-2.5 px-4 text-center ${qValues[2] < 0 ? 'text-red-400' : 'text-emerald-400'}">${qValues[2].toFixed(3)}</td>
+                        <td class="py-2.5 px-4 text-center">
+                            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-950 text-purple-300 border border-purple-800">
+                                ${actionLabels[bestIdx]}
+                            </span>
+                        </td>
+                        <td class="py-2.5 px-4 text-center text-gray-400">${visits}</td>
+                    </tr>
+                `;
+            });
+
+            tbody.innerHTML = html;
+        }
+
+        function filterQTable() {
+            const query = document.getElementById('qtable-search').value.toLowerCase();
+            const rows = document.querySelectorAll('#qtable-body tr');
+            rows.forEach(row => {
+                const text = row.innerText.toLowerCase();
+                row.style.display = text.includes(query) ? '' : 'none';
+            });
+        }
+    </script>
+</body>
+</html>
